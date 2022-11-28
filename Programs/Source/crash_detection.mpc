@@ -1,0 +1,34 @@
+from util import if_else
+
+program.bit_length = 32
+#program.use_edabit(True)
+
+
+def crash_detection(N):
+	Crash = Array(N, sint)
+	Location_x = Array(N, sint)
+	Location_y = Array(N, sint)
+
+	for i in range(N):
+		inps = [sint.get_input_from(i) for _ in range(3)]
+		Crash[i] = inps[0]
+		Location_x[i] = inps[1]
+		Location_y[i] = inps[2]
+
+	c = sint(0)
+	lx = sint(0)
+	ly = sint(0)
+	crash = sint(1)
+	index = sint(0)
+	for i in range(N):
+		condition = (Crash[i] ==  crash) | (c == crash)
+		new_c = if_else(condition, sint(1), c)
+		index = if_else()
+		#lx = if_else(c, Location_x[i], sint(0))
+		#ly = if_else(c, Location_y[i], sint(0))
+
+
+	
+	print_ln('There is a crash %s in x=%s; y=%s', new_c.reveal(), lx.reveal(), ly.reveal())
+
+crash_detection(3)
