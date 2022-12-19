@@ -1,5 +1,5 @@
 CC = /usr/bin/gcc
-CFLAGS = -O3 -Wall -Wextra
+CFLAGS = -g -O3 -Wall -Wextra
 AS = $(CC) $(CFLAGS) -c
 
 OBJS = qot_sender.o qot_receiver.o main.o
