@@ -90,7 +90,12 @@ void BaseOT::exec_base(int my_num, int other_player, bool new_receiver_inputs)
     //SIMPLEOT_RECEIVER receiver;
 
     OKDOT_SENDER qsender; //sender structure
+    qsender.my_num = my_num;
+    qsender.other_player = other_player;
+    
     OKDOT_RECEIVER qreceiver; //receiver structure
+    qreceiver.my_num = my_num;
+    qreceiver.other_player = other_player;
 
     unsigned char sender_out[2][OUTPUT_LENGTH/32]; //stores sender outputs
     unsigned char receiver_out[OUTPUT_LENGTH/32]; //stores receiver outputs
