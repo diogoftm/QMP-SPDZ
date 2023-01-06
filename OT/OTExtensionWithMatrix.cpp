@@ -14,7 +14,7 @@ OTExtensionWithMatrix OTExtensionWithMatrix::setup(TwoPartyPlayer& player,
     PRNG G;
     G.ReSeed();
     baseOT.set_receiver_inputs(delta);
-    baseOT.exec_base(false);
+    baseOT.exec_base(0,1,false); // MS : just testing. TODO: exec_base(my_num, other_player)
     return OTExtensionWithMatrix(baseOT, &player, passive);
 }
 

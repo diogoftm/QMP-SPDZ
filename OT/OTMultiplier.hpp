@@ -165,7 +165,7 @@ void OTMultiplier<W>::multiplyForTriples()
         {
             BaseOT bot(aBits.size(), -1, generator.players[thread_num]);
             bot.set_receiver_inputs(aBits);
-            bot.exec_base(false);
+            bot.exec_base(0, 1, false); // MS : just testing. TODO: exec_base(my_num, other_player)
             for (size_t i = 0; i < aBits.size(); i++)
             {
                 rot_ext.receiverOutputMatrix[i] =

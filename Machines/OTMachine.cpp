@@ -237,7 +237,7 @@ OTMachine::OTMachine(int argc, const char** argv)
         bot_ = new FakeOT(nbase, 128, P, INV_ROLE(ot_role));
     cout << "real mode " << opt.isSet("-r") << endl;
     BaseOT& bot = *bot_;
-    bot.exec_base();
+    bot.exec_base(0,1); // MS : just testing. TODO: exec_base(my_num, other_player)
     gettimeofday(&baseOTend, NULL);
     double basetime = timeval_diff(&baseOTstart, &baseOTend);
     cout << "\t\tBaseTime (" << role_to_str(ot_role) << "): " << basetime/1000000 << endl << flush;

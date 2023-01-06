@@ -72,10 +72,17 @@ void send_if_ot_receiver(TwoPartyPlayer* P, vector<octetStream>& os, OT_ROLE rol
 }
 
 
-void BaseOT::exec_base(bool new_receiver_inputs)
+void BaseOT::exec_base(int my_num, int other_player, bool new_receiver_inputs)
 {
     if (not cpu_has_avx())
         throw runtime_error("SimpleOT needs AVX support");
+
+    if (my_num == 0) {
+        printf("Just checking my_num\n");
+    }
+    if (other_player == 1) {
+        printf("Just checking other_player\n");
+    }
 
     int i, j; //k;
     size_t len;

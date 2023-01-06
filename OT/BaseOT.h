@@ -81,7 +81,7 @@ public:
 	}
 
 	// do the OTs -- generate fresh random choice bits by default
-	virtual void exec_base(bool new_receiver_inputs=true);
+	virtual void exec_base(int my_num, int other_player, bool new_receiver_inputs=true);
 	// use PRG to get the next ot_length bits
 	void set_seeds();
 	void extend_length();
