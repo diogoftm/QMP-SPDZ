@@ -237,6 +237,8 @@ OTMachine::OTMachine(int argc, const char** argv)
         bot_ = new FakeOT(nbase, 128, P, INV_ROLE(ot_role));
     cout << "real mode " << opt.isSet("-r") << endl;
     BaseOT& bot = *bot_;
+    std::cerr << "Error: The OTMachine.cpp file is not prepared to work with OTKeys. Please integrate my_num and other_player index in OTMachine.cpp::242.\n" << std::endl;
+    exit(1);
     bot.exec_base(0,1); // MS : just testing. TODO: exec_base(my_num, other_player)
     gettimeofday(&baseOTend, NULL);
     double basetime = timeval_diff(&baseOTstart, &baseOTend);

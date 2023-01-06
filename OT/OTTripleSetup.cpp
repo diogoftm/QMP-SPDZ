@@ -14,8 +14,18 @@ void OTTripleSetup::setup()
 
     for (int i = 0; i < nparties - 1; i++)
     {
+        int other_player;
+        // i for indexing, other_player is actual number
+        if (i >= my_num)
+            other_player = i + 1;
+        else
+            other_player = i;
+        
+        printf("This is my_num: %d\n", my_num);
+        printf("This is other_player: %d\n", other_player);
+
         baseOTs[i]->set_receiver_inputs(base_receiver_inputs);
-        baseOTs[i]->exec_base(0, 1, false); // MS : just testing. TODO: exec_base(my_num, other_player)
+        baseOTs[i]->exec_base(my_num, other_player, false); // MS : just testing. TODO: exec_base(my_num, other_player)
         baseSenderInputs[i] = baseOTs[i]->sender_inputs;
         baseReceiverOutputs[i] = baseOTs[i]->receiver_outputs;
     }

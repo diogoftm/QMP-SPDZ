@@ -77,12 +77,9 @@ void BaseOT::exec_base(int my_num, int other_player, bool new_receiver_inputs)
     if (not cpu_has_avx())
         throw runtime_error("SimpleOT needs AVX support");
 
-    if (my_num == 0) {
-        printf("Just checking my_num\n");
-    }
-    if (other_player == 1) {
-        printf("Just checking other_player\n");
-    }
+
+    printf("Just checking my_num: %d\n", my_num);
+    printf("Just checking other_player: %d\n", other_player);
 
     int i, j; //k;
     size_t len;

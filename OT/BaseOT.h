@@ -79,7 +79,7 @@ public:
 			new_inputs[i] = (inputs >> i).get_lower() & 1;
 		set_receiver_inputs(new_inputs);
 	}
-
+	
 	// do the OTs -- generate fresh random choice bits by default
 	virtual void exec_base(int my_num, int other_player, bool new_receiver_inputs=true);
 	// use PRG to get the next ot_length bits
