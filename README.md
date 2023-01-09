@@ -1,8 +1,8 @@
 # About this fork
 
-The `main` branch is an unchanged copy of the MP-SPDZ repository at commit `565c364cd4204a8d697c7ab3d235774a15ecb29e`.
+The [`master`](https://github.com/manel1874/QMP-SPDZ/tree/master) branch is an unchanged copy of the MP-SPDZ repository at commit `565c364cd4204a8d697c7ab3d235774a15ecb29e`.
 
-The `qdev` branch is based on the MP-SPDZ repository at commit `565c364cd4204a8d697c7ab3d235774a15ecb29e`. It integrates the OTKeys module from [here](https://github.com/manel1874/OTKeys) and includes the following changes to the main MP-SPDZ repository:
+The [`qdev`](https://github.com/manel1874/QMP-SPDZ/tree/qdev) branch is based on the MP-SPDZ repository at commit `565c364cd4204a8d697c7ab3d235774a15ecb29e`. It integrates the OTKeys module from [here](https://github.com/manel1874/OTKeys) and includes the following changes to the main MP-SPDZ repository:
 
 1. Modifies the definition of the `BaseOT::exec_base(int my_num, int other_player, bool new_receiver_inputs)` function to include `my_num` and `other_player` index arguments.
 2. Makes changes to the following files to implement this change:
