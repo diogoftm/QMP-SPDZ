@@ -86,6 +86,10 @@ void BaseOT::exec_base(int my_num, int other_player, bool new_receiver_inputs)
     //SIMPLEOT_SENDER sender;
     //SIMPLEOT_RECEIVER receiver;
 
+    if (chdir("OTKeys") != 0) {
+        perror("chdir() error");
+    }
+
     OKDOT_SENDER qsender; //sender structure
     qsender.my_num = my_num;
     qsender.other_player = other_player;
@@ -382,6 +386,10 @@ void BaseOT::exec_base(int my_num, int other_player, bool new_receiver_inputs)
         #endif
     }*/
     set_seeds();
+
+    if (chdir("..") != 0) {
+        perror("chdir() error");
+    }
 }
 
 void BaseOT::set_seeds()
