@@ -1,3 +1,30 @@
+# About this fork
+
+The `qdev` branch is based on the MP-SPDZ commit `565c364cd4204a8d697c7ab3d235774a15ecb29e`. It integrates the OTKeys module from [here](https://github.com/manel1874/OTKeys) and includes the following changes to the main MP-SPDZ repository:
+
+1. Modifies the definition of the `BaseOT::exec_base(int my_num, int other_player, bool new_receiver_inputs)` function to include `my_num` and `other_player` index arguments.
+2. Makes changes to the following files to implement this change:
+- `OTMachine.cpp`.
+- `OTTripleSetup.cpp`.
+- `OTExtensionWithMatrix.cpp`.
+- `OTMultiplier.hpp`.
+
+
+## Supported protocols
+
+The following protocols were tested with OTKeys:
+
+| Program | Protocol | Support | 
+| --- | --- | --- | --- | --- |
+| `mascot-party.x` | [MASCOT](https://eprint.iacr.org/2016/505) | Yes | 
+
+
+#### Other protocols
+
+In the current version of the project, the programs that depend on `OTMachine.cpp`, `OTExtensionWithMatrix.cpp` or `OTMultiplier.hpp` are not compatible with the OTKeys module and will cause errors if used. The three above files intentionally break whenever called.
+
+
+
 # Multi-Protocol SPDZ [![Documentation Status](https://readthedocs.org/projects/mp-spdz/badge/?version=latest)](https://mp-spdz.readthedocs.io/en/latest/?badge=latest) [![Build Status](https://dev.azure.com/data61/MP-SPDZ/_apis/build/status/data61.MP-SPDZ?branchName=master)](https://dev.azure.com/data61/MP-SPDZ/_build/latest?definitionId=7&branchName=master) [![Gitter](https://badges.gitter.im/MP-SPDZ/community.svg)](https://gitter.im/MP-SPDZ/community?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
 
 Software to benchmark various secure multi-party computation (MPC)
