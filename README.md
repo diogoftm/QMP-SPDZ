@@ -15,7 +15,7 @@ The `qdev` branch is based on the MP-SPDZ commit `565c364cd4204a8d697c7ab3d23577
 The following protocols were tested with OTKeys:
 
 | Program | Protocol | Support | 
-| --- | --- | --- | --- | --- |
+| --- | --- | --- |
 | `mascot-party.x` | [MASCOT](https://eprint.iacr.org/2016/505) | Yes | 
 
 
