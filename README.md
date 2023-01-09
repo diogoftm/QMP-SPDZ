@@ -1,6 +1,8 @@
 # About this fork
 
-The `qdev` branch is based on the MP-SPDZ commit `565c364cd4204a8d697c7ab3d235774a15ecb29e`. It integrates the OTKeys module from [here](https://github.com/manel1874/OTKeys) and includes the following changes to the main MP-SPDZ repository:
+The `main` branch is an unchanged copy of the MP-SPDZ repository at commit `565c364cd4204a8d697c7ab3d235774a15ecb29e`.
+
+The `qdev` branch is based on the MP-SPDZ repository at commit `565c364cd4204a8d697c7ab3d235774a15ecb29e`. It integrates the OTKeys module from [here](https://github.com/manel1874/OTKeys) and includes the following changes to the main MP-SPDZ repository:
 
 1. Modifies the definition of the `BaseOT::exec_base(int my_num, int other_player, bool new_receiver_inputs)` function to include `my_num` and `other_player` index arguments.
 2. Makes changes to the following files to implement this change:
@@ -22,6 +24,40 @@ The following protocols were tested with OTKeys:
 #### Other protocols
 
 In the current version of the project, the programs that depend on `OTMachine.cpp`, `OTExtensionWithMatrix.cpp` or `OTMultiplier.hpp` are not compatible with the OTKeys module and will cause errors if used. The three above files intentionally break whenever called.
+
+## OTKeys supported
+
+The [OTKeys repository](https://github.com/manel1874/OTKeys) aims to support four types of oblivious keys. Currently, there is only one type implemented there. As such, this repository only supports the `ui_rotk` oblivious key type.
+
+
+## Running computation
+
+Settings:
+Number of parties = 3
+
+1. Compile the high-level program (e.g. crash_detection_test)
+
+```
+$ ./compile.py -F 64 crash_detection_test
+```
+
+2. Generate oblivious keys (possibly with quantum communication) and save them into `OTKeys/keys` folder. The OTKeys submodule comes along with a simulator that generates locally the required files.
+
+```
+$ cd OTKeys/simulator
+$ python3 simulator.py -p 3
+```
+
+3. Run in three different terminal windows:
+
+`$ ./mascot-party.x -N 3 -I -p 0 crash_detection_test`
+
+`$ ./mascot-party.x -N 3 -I -p 1 crash_detection_test`
+
+`$ ./mascot-party.x -N 3 -I -p 2 crash_detection_test`
+
+
+Note: you always have to generate new oblivious keys every time you run step 3. This is because the oblivious keys get consumed (and deleted) during step 3.
 
 
 
