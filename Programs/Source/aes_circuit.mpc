@@ -6,3 +6,5 @@ n = 1000
 aes128 = Circuit('aes_128')
 ciphertexts = aes128(sbitvec([key] * n), sbitvec([plaintext] * n))
 ciphertexts.elements()[n - 1].reveal().print_reg()
+
+print_ln("cipher %s", ciphertexts.elements()[n-1].reveal())
