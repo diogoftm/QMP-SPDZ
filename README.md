@@ -1,6 +1,6 @@
 # About this fork
 
-The [`master`](https://github.com/manel1874/QMP-SPDZ/tree/master) branch is an unchanged copy of the MP-SPDZ repository at commit `565c364cd4204a8d697c7ab3d235774a15ecb29e`.
+The [`master`](https://github.com/manel1874/QMP-SPDZ/tree/master) branch is an unchanged copy of the MP-SPDZ repository.
 
 The [`qdev`](https://github.com/manel1874/QMP-SPDZ/tree/qdev) branch is based on the MP-SPDZ repository at commit `565c364cd4204a8d697c7ab3d235774a15ecb29e`. It integrates the OTKeys module from [here](https://github.com/manel1874/OTKeys) and includes the following changes to the main MP-SPDZ repository:
 
@@ -19,11 +19,12 @@ The following protocols were tested with OTKeys:
 | Program | Protocol | Support | 
 | --- | --- | --- |
 | `mascot-party.x` | [MASCOT](https://eprint.iacr.org/2016/505) | Yes | 
+| `yao-party.x` | [Yao](#yaos-garbled-circuits) | Yes | 
 
 
 #### Other protocols
 
-In the current version of the project, the programs that depend on `OTMachine.cpp`, `OTExtensionWithMatrix.cpp` or `OTMultiplier.hpp` are not compatible with the OTKeys module and will cause errors if used. The three above files intentionally break whenever called.
+In the current version of the project, the programs that depend on `OTMachine.cpp` or `OTMultiplier.hpp` are not compatible with the OTKeys module and will cause errors if used. The two above files intentionally break whenever called.
 
 ## OTKeys supported
 
@@ -58,7 +59,6 @@ $ python3 simulator.py -p 3
 
 
 Note: you always have to generate new oblivious keys every time you run step 3. This is because the oblivious keys get consumed (and deleted) during step 3.
-
 
 
 # Multi-Protocol SPDZ [![Documentation Status](https://readthedocs.org/projects/mp-spdz/badge/?version=latest)](https://mp-spdz.readthedocs.io/en/latest/?badge=latest) [![Build Status](https://dev.azure.com/data61/MP-SPDZ/_apis/build/status/data61.MP-SPDZ?branchName=master)](https://dev.azure.com/data61/MP-SPDZ/_build/latest?definitionId=7&branchName=master) [![Gitter](https://badges.gitter.im/MP-SPDZ/community.svg)](https://gitter.im/MP-SPDZ/community?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
