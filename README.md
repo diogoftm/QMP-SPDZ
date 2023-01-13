@@ -1,6 +1,6 @@
 # About this fork
 
-The [`master`](https://github.com/manel1874/QMP-SPDZ/tree/master) branch is an unchanged copy of the MP-SPDZ repository at commit `565c364cd4204a8d697c7ab3d235774a15ecb29e`.
+The [`master`](https://github.com/manel1874/QMP-SPDZ/tree/master) branch is an unchanged copy of the MP-SPDZ repository.
 
 The [`qdev`](https://github.com/manel1874/QMP-SPDZ/tree/qdev) branch is based on the MP-SPDZ repository at commit `565c364cd4204a8d697c7ab3d235774a15ecb29e`. It integrates the OTKeys module from [here](https://github.com/manel1874/OTKeys) and includes the following changes to the main MP-SPDZ repository:
 
