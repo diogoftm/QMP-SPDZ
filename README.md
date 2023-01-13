@@ -19,11 +19,12 @@ The following protocols were tested with OTKeys:
 | Program | Protocol | Support | 
 | --- | --- | --- |
 | `mascot-party.x` | [MASCOT](https://eprint.iacr.org/2016/505) | Yes | 
+| `yao-party.x` | [Yao](#yaos-garbled-circuits) | Yes | 
 
 
 #### Other protocols
 
-In the current version of the project, the programs that depend on `OTMachine.cpp`, `OTExtensionWithMatrix.cpp` or `OTMultiplier.hpp` are not compatible with the OTKeys module and will cause errors if used. The three above files intentionally break whenever called.
+In the current version of the project, the programs that depend on `OTMachine.cpp` or `OTMultiplier.hpp` are not compatible with the OTKeys module and will cause errors if used. The two above files intentionally break whenever called.
 
 ## OTKeys supported
 

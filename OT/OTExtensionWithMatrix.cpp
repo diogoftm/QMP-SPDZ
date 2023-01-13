@@ -14,11 +14,10 @@ OTExtensionWithMatrix OTExtensionWithMatrix::setup(TwoPartyPlayer& player,
     PRNG G;
     G.ReSeed();
     baseOT.set_receiver_inputs(delta);
-    printf("my_num: %d\n", player.my_num());
-    printf("other_player: %d\n", player.my_num());
-    //std::cerr << "Error: The OTExtensionWithMatrix.cpp file is not prepared to work with OTKeys. Please integrate my_num and other_player index in OTExtensionWithMatrix.cpp::19.\n" << std::endl;
-    //exit(1);
-    baseOT.exec_base(player.my_num(),player.other_player_num(),false); // MS : just testing. TODO: exec_base(my_num, other_player)
+    // To test id parameters:
+    //printf("my_num: %d\n", player.my_num());
+    //printf("other_player: %d\n", player.my_num());
+    baseOT.exec_base(player.my_num(),player.other_player_num(),false);
     return OTExtensionWithMatrix(baseOT, &player, passive);
 }
 
