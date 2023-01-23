@@ -1,0 +1,15 @@
+from circuit import Circuit
+
+sb256 = sbits.get_type(256)
+sb512 = sbits.get_type(512)
+chaining = sb256(0x6a09e667bb67ae853c6ef372a54ff53a510e527f9b05688c1f83d9ab5be0cd19)
+msg_buffer = sb512(0x6a09e667bb67ae853c6ef372a54ff53a510e527f9b05688c1f83d9ab5be0cd196a09e667bb67ae853c6ef372a54ff53a510e527f9b05688c1f83d9ab5be0cd19)
+
+sha256 = Circuit('sha256')
+
+chain_val = sha256(sbitvec([msg_buffer]), sbitvec([chaining]))
+chain_val.elements()[0].reveal().print_reg()
+
+print_ln("SHA256 is %s", chain_val.elements()[0].reveal())
+
+
