@@ -269,6 +269,7 @@ $(LIBQOKDOT): OTKeys/Makefile
 OT/BaseOT.o: OTKeys/Makefile
 
 OTKeys/Makefile: 
+	git submodule update --init OTKeys
 	$(MAKE) -C OTKeys
 
 
