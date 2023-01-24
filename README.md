@@ -36,10 +36,9 @@ The [OTKeys repository](https://github.com/manel1874/OTKeys) aims to support fou
 
 1. Clone this repository and checkout `qdev` branch:
 ```
-$ https://github.com/manel1874/QMP-SPDZ.git
+$ git clone https://github.com/manel1874/QMP-SPDZ.git
 $ cd QMP-SPDZ
 $ git checkout qdev
-
 ```
 
 2. Make tldr: 
