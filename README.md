@@ -26,9 +26,43 @@ The following protocols were tested with OTKeys:
 
 In the current version of the project, the programs that depend on `OTMachine.cpp` or `OTMultiplier.hpp` are not compatible with the OTKeys module and will cause errors if used. The two above files intentionally break whenever called.
 
-## OTKeys supported
+
+#### OTKeys supported
 
 The [OTKeys repository](https://github.com/manel1874/OTKeys) aims to support four types of oblivious keys. Currently, there is only one type implemented there. As such, this repository only supports the `ui_rotk` oblivious key type.
+
+
+### Installation
+
+1. Clone this repository and checkout `qdev` branch:
+```
+$ https://github.com/manel1874/QMP-SPDZ.git
+$ cd QMP-SPDZ
+$ git checkout qdev
+
+```
+
+2. Make tldr: 
+
+```
+$ make -j 8 tldr
+```
+
+3. Make `mascot-party.x` or `yao-party.x`:
+
+```
+$ make -j 8 mascot-party.x
+```
+or
+```
+$ make -j 8 yao-party.x
+```
+
+4. Make circuits:
+
+```
+$ make Programs/Circuits
+```
 
 
 ## Running computation
