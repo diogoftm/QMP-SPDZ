@@ -93,16 +93,24 @@ To be done:
 """
 
 
+########################
 
+#       Imports
 
-
-
-
-
-
+########################
 
 
 from circuit import Circuit
+from util import if_else
+
+
+
+########################
+
+#       Functions def
+
+########################
+
 
 #sb256 = sbits.get_type(256)
 #sb512 = sbits.get_type(512)
@@ -118,32 +126,120 @@ from circuit import Circuit
 
 
 
-sha256 = Circuit('sha256')
+def compute_tbl_entry_sha256():
+    sha256 = Circuit('sha256')
 
-sb512 = sbits.get_type(512)
-siv256 = sbitintvec.get_type(256)
-siv512 = sbitintvec.get_type(512)
+    sb512 = sbits.get_type(512)
+    siv256 = sbitintvec.get_type(256)
+    siv512 = sbitintvec.get_type(512)
 
-state = siv256(0x6a09e667bb67ae853c6ef372a54ff53a510e527f9b05688c1f83d9ab5be0cd19)
-# secret = siv512(sb512(0x1 << 511)) # empty string case
-msg_buffer = sb512(0b10110101101101011011010110110101101101011011010110110101101101011011010110110101101101011011010110000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001100000)
-secret = siv512(msg_buffer)
+    state = siv256(0x6a09e667bb67ae853c6ef372a54ff53a510e527f9b05688c1f83d9ab5be0cd19)
+    secret = siv512(sb512(0x1 << 511)) # empty string case
+    #msg_buffer = sb512(0b10110101101101011011010110110101101101011011010110110101101101011011010110110101101101011011010110000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001100000)
+    #secret = siv512(msg_buffer)
 
-result = sha256(secret, state)
+    result = sha256(secret, state)
 
-result.elements()[0].reveal().print_reg()
-print_ln("SHA256 is %s", result.elements()[0].reveal())
+    result.elements()[0].reveal().print_reg()
+    print_ln("SHA256 is %s", result.elements()[0].reveal())
 
 
-res = result.elements()[0]
+    res = result.elements()[0]
 
-trunc_0_128 = res.TruncPr(128,0)
-trunc_128_256 = res.TruncPr(256,128)
+    trunc_0_128 = res.TruncPr(128,0)
+    trunc_128_256 = res.TruncPr(256,128)
 
-sint_trunc_0_128 = sint.bit_compose(sint(trunc_0_128))
-sint_trunc_128_256 = sint.bit_compose(sint(trunc_128_256))
+    sint_trunc_0_128 = sint.bit_compose(sint(trunc_0_128))
+    sint_trunc_128_256 = sint.bit_compose(sint(trunc_128_256))
 
-print_ln_to(0, "sint of a 256 sbitint conversion. First part = %s", sint_trunc_0_128.reveal_to(0))
-print_ln_to(0, "sint of a 256 sbitint conversion. Second part 101 = %s", sint_trunc_128_256.reveal_to(0))
+    print_ln("sint of a 256 sbitint conversion. First part = %s", sint_trunc_0_128.reveal())
+    print_ln("sint of a 256 sbitint conversion. Second part = %s", sint_trunc_128_256.reveal())
+
+    return sint_trunc_0_128, sint_trunc_128_256
+
+
+
+########################
+
+#       Preparation
+
+########################
+
+
+tbl = MultiArray([5,5], sint)
+
+@for_range_opt(5)
+def _(i):
+    @for_range_opt(5)
+    def _(j):
+        tbl[j][i] = sint(i) + sint(j)
+
+
+my_id = sint(2)
+my_type = sint(3)
+my_result = sint(0)
+
+
+########################
+
+#        Search
+
+########################
+
+
+
+# temporary register to cover line found
+tmp_lfnd = sintbit(0)
+# final register to cover line found
+fnl_lfnd = sintbit(0)
+
+# temporary register to cover column found
+tmp_cfnd = sintbit(0)
+# final register to cover column found
+fnl_cfnd = sintbit(0)
+
+
+#@for_range_opt(5)
+#def loop_lines(i):
+for i in range(5):
+    #tmp_lfnd = tbl[i][0] == my_id
+    tmp_lfnd = i == my_id
+    fnl_lfnd = fnl_lfnd | tmp_lfnd
+
+    #compute_tbl_entry_sha256()
+    
+    #@for_range_opt(5)
+    #def loop_columns(j):
+    for j in range(5):
+
+        tmp_cfnd = j == my_type
+        fnl_cfnd = fnl_cfnd | tmp_cfnd
+        match = tmp_cfnd & tmp_lfnd
+        my_result = if_else(match, tbl[i][j], my_result)
+        #my_hash = if_else(match, cmp_hash, sint(0))
+
+
+
+#if fnl_lfnd:
+#	raise CompilerError('ID (line) not found.')
+
+#if fnl_lfnd:
+#	raise CompilerError('Type (column) not found.')
+
+# Print result
+print_ln("This is my result: %s", my_result.reveal())
+
+
+
+
+    
+
+
+
+
+
+
+
+
 
 
