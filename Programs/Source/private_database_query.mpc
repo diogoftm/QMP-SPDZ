@@ -64,13 +64,12 @@ print_ln_to(0, "Now, in the sint version: %s", sint_trunc_res_110.reveal_to(0))
 ./mascot-party.x -N 2 -I -p 0 private_database_query > output_0.txt
 ```
 
+5. Looping through the elements is working
 
 
 To be done:
 
-1. Hardcode some message in order to get right results. Done!
-1. Hardcode some message with loop.
-2. Input from parties.
+1. Hardcode some message in order to get right results. [x]
 
 10110101 10110101 10110101 10110101 
 10110101 10110101 10110101 10110101
@@ -88,6 +87,11 @@ To be done:
 00000000 00000000 00000000 00000000
 00000000 00000000 00000000 00000000
 00000000 00000000 00000000 01100000
+
+2. Hardcode some message with loop. [ ]
+3. Input from parties and understand types to get the hash message working properly. [ ] <--- doing
+
+
 
 
 """
@@ -133,6 +137,7 @@ def compute_tbl_entry_sha256():
     siv256 = sbitintvec.get_type(256)
     siv512 = sbitintvec.get_type(512)
 
+
     state = siv256(0x6a09e667bb67ae853c6ef372a54ff53a510e527f9b05688c1f83d9ab5be0cd19)
     secret = siv512(sb512(0x1 << 511)) # empty string case
     #msg_buffer = sb512(0b10110101101101011011010110110101101101011011010110110101101101011011010110110101101101011011010110000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001100000)
@@ -140,25 +145,37 @@ def compute_tbl_entry_sha256():
 
     result = sha256(secret, state)
 
-    result.elements()[0].reveal().print_reg()
-    print_ln("SHA256 is %s", result.elements()[0].reveal())
+    #result.elements()[0].reveal().print_reg()
+    #print_ln("SHA256 is %s", result.elements()[0].reveal())
 
 
     res = result.elements()[0]
 
-    trunc_0_128 = res.TruncPr(128,0)
-    trunc_128_256 = res.TruncPr(256,128)
+    # Parse as four 64-bit sint with 
+    trunc_64_0 = res.TruncPr(64,0)
+    trunc_128_64 = res.TruncPr(128,64)
+    trunc_192_128 = res.TruncPr(192,128)
+    trunc_256_192 = res.TruncPr(256,192)
 
-    sint_trunc_0_128 = sint.bit_compose(sint(trunc_0_128))
-    sint_trunc_128_256 = sint.bit_compose(sint(trunc_128_256))
+    sint_trunc_64_0 = sint.bit_compose(sint(trunc_64_0))
+    sint_trunc_128_64 = sint.bit_compose(sint(trunc_128_64))
+    sint_trunc_192_128 = sint.bit_compose(sint(trunc_192_128))
+    sint_trunc_256_192 = sint.bit_compose(sint(trunc_256_192))
 
-    print_ln("sint of a 256 sbitint conversion. First part = %s", sint_trunc_0_128.reveal())
-    print_ln("sint of a 256 sbitint conversion. Second part = %s", sint_trunc_128_256.reveal())
+    hash_array = Array(4, sint)
+    hash_array[0] = sint_trunc_64_0
+    hash_array[1] = sint_trunc_128_64
+    hash_array[2] = sint_trunc_192_128
+    hash_array[3] = sint_trunc_256_192
 
-    return sint_trunc_0_128, sint_trunc_128_256
+
+    #print_ln("sint of a 256 sbitint conversion. First part = %s", sint_trunc_0_128.reveal())
+    #print_ln("sint of a 256 sbitint conversion. Second part = %s", sint_trunc_128_256.reveal())
+
+    return hash_array
 
 
-
+"""
 ########################
 
 #       Preparation
@@ -178,6 +195,7 @@ def _(i):
 my_id = sint(2)
 my_type = sint(3)
 my_result = sint(0)
+my_hash = Array(4, sint)
 
 
 ########################
@@ -202,11 +220,11 @@ fnl_cfnd = sintbit(0)
 #@for_range_opt(5)
 #def loop_lines(i):
 for i in range(5):
-    #tmp_lfnd = tbl[i][0] == my_id
-    tmp_lfnd = i == my_id
+    
+    tmp_lfnd = tbl[i][0] == my_id
     fnl_lfnd = fnl_lfnd | tmp_lfnd
 
-    #compute_tbl_entry_sha256()
+    cmp_hash = compute_tbl_entry_sha256()
     
     #@for_range_opt(5)
     #def loop_columns(j):
@@ -214,9 +232,14 @@ for i in range(5):
 
         tmp_cfnd = j == my_type
         fnl_cfnd = fnl_cfnd | tmp_cfnd
+
         match = tmp_cfnd & tmp_lfnd
+
         my_result = if_else(match, tbl[i][j], my_result)
-        #my_hash = if_else(match, cmp_hash, sint(0))
+        my_hash[0] = if_else(match, cmp_hash[0], my_hash[0])
+        my_hash[1] = if_else(match, cmp_hash[1], my_hash[1])
+        my_hash[2] = if_else(match, cmp_hash[2], my_hash[2])
+        my_hash[3] = if_else(match, cmp_hash[3], my_hash[3])
 
 
 
@@ -227,7 +250,18 @@ for i in range(5):
 #	raise CompilerError('Type (column) not found.')
 
 # Print result
-print_ln("This is my result: %s", my_result.reveal())
+print_ln_to(0, "This is my result: %s", my_result.reveal_to(0))
+print_ln_to(0, "hash[0:64] = %s", my_hash[0].reveal_to(0))
+print_ln_to(0, "hash[64:128] = %s", my_hash[1].reveal_to(0))
+print_ln_to(0, "hash[128:192] = %s", my_hash[2].reveal_to(0))
+print_ln_to(0, "hash[192:256] = %s", my_hash[3].reveal_to(0))
+
+"""
+
+
+message_8bits = sbits.get_input_from(0)
+sint_message_8bits = sint.bit_compose(sint(message_8bits))
+print_ln("This is 0th-party message with 8 bits: %s", sint_message_8bits.reveal())
 
 
 
