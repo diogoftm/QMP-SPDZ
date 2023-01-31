@@ -1,157 +1,67 @@
-"""
-This implementation is used for the following paper:
-
-    https://private-database-query.nature.com
-
-
-Done so far:
-
-1. Compute SHA256 with the initial registers and empty message (working)
-
-```
-sha256 = Circuit('sha256')
-
-sb512 = sbits.get_type(512)
-siv256 = sbitintvec.get_type(256)
-siv512 = sbitintvec.get_type(512)
-
-state = siv256(0x6a09e667bb67ae853c6ef372a54ff53a510e527f9b05688c1f83d9ab5be0cd19)
-secret = siv512(sb512(0x1 << 511))
-
-result = sha256(secret, state)
-
-result.elements()[0].reveal().print_reg()
-print_ln("SHA256 is %s", result.elements()[0].reveal())
-```
-
-2. Decompose and truncate `sbitint` type into `bits` (working)
-
-By hand looks like this:
-
-```
-si8 = sbitint.get_type(8)
-
-te100110 = si8(38)
-
-bits = te100110.bit_decompose()
-res = te100110.get_type(3).bit_compose(bits[:3])
-```
-
-Using `TruncPr` function:
-
-```
-trunc_res = te100110.TruncPr(3,0)
-trunc_res_3 = te100110.TruncPr(6,4)
-```
-
-Note :: TruncPr returns a sbitint type elements as well. Also, for TruncPr(k, m), k > m, 
-kth index is excluded and mth index is included.
-
-
-3. Reveal sbitint to a perticular player
-
-sbitint does not have implemented the `reveal_to()` method. Therefore, we
-have to convert it into `sint` type.
-
-```
-sint_trunc_res_110 = sint.bit_compose(sint(trunc_res))
-print_ln_to(0, "Now, in the sint version: %s", sint_trunc_res_110.reveal_to(0))
-```
-
-4. Print the result to file:
-
-```
-./mascot-party.x -N 2 -I -p 0 private_database_query > output_0.txt
-```
-
-5. Looping through the elements is working
-
-
-To be done:
-
-1. Hardcode some message in order to get right results. [x]
-
-10110101 10110101 10110101 10110101 
-10110101 10110101 10110101 10110101
-10110101 10110101 10110101 10110101
-10000000 00000000 00000000 00000000
-00000000 00000000 00000000 00000000
-00000000 00000000 00000000 00000000
-00000000 00000000 00000000 00000000
-00000000 00000000 00000000 00000000
-00000000 00000000 00000000 00000000
-00000000 00000000 00000000 00000000
-00000000 00000000 00000000 00000000
-00000000 00000000 00000000 00000000
-00000000 00000000 00000000 00000000
-00000000 00000000 00000000 00000000
-00000000 00000000 00000000 00000000
-00000000 00000000 00000000 01100000
-
-2. Hardcode some message with loop. [ ]
-3. Input from parties and understand types to get the hash message working properly. [ ] <--- doing
-
-
-
-
-"""
-
-
 ########################
 
-#       Imports
+#       Imports        #
 
 ########################
 
 
 from circuit import Circuit
-from util import if_else
+from util import if_else, bit_compose
 
 
+################################
 
-########################
+#        Functions def         #
 
-#       Functions def
-
-########################
-
-
-#sb256 = sbits.get_type(256)
-#sb512 = sbits.get_type(512)
-#chaining = sb256(0x6a09e667bb67ae853c6ef372a54ff53a510e527f9b05688c1f83d9ab5be0cd19)
-#msg_buffer = sb512(0b10110101101101011011010110110101101101011011010110110101101101011011010110110101101101011011010110000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001100000)
-
-#sha256 = Circuit('sha256')
-
-#chain_val = sha256(sbitvec([msg_buffer]), sbitvec([chaining]))
-#chain_val.elements()[0].reveal().print_reg()
-
-#print_ln("SHA256 is %s", chain_val.elements()[0].reveal())
+################################
 
 
+def concatenate_to_hash(tbl_l):
+    """ Concatenate an 'Array' of 'sbits'.
 
-def compute_tbl_entry_sha256():
+    Note: we assume the following parameters (hardcoded)
+        lenght of tbl_l = 64
+        length of sbits = 8 (in the implementation we use sb9 
+                             as the system considers signed
+                             numbers)
+    
+    :param tbl_l: Array of sbits.
+
+    :output: A 512-`sbits` element."""
+
+    # Step 1: initialization
+    sb512 = sbits.get_type(512)
+    bits_l = []
+
+    # Step 2: concatenate the bit decoposition of all individual 
+    # elements from tbl_l
+    for i in range(0, 64):
+        # Concatenate in reversed order
+        val = tbl_l[63-i] 
+        bits_l += val.bit_decompose()[:8]
+
+    return sb512.bit_compose(bits_l)
+
+
+def compute_tbl_entry_sha256(secret):
+    """ Compute the SHA256 of secret
+    
+    :param secret: a preprocessed element to be hashed (svi512)
+                    Preprocess: padding step.
+    """
+    
+    # Step 1: import sha256 circuit
     sha256 = Circuit('sha256')
 
-    sb512 = sbits.get_type(512)
+    # Step 2: initialize state variable 
     siv256 = sbitintvec.get_type(256)
-    siv512 = sbitintvec.get_type(512)
-
-
     state = siv256(0x6a09e667bb67ae853c6ef372a54ff53a510e527f9b05688c1f83d9ab5be0cd19)
-    secret = siv512(sb512(0x1 << 511)) # empty string case
-    #msg_buffer = sb512(0b10110101101101011011010110110101101101011011010110110101101101011011010110110101101101011011010110000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001100000)
-    #secret = siv512(msg_buffer)
 
+    # Step 3: run circuit
     result = sha256(secret, state)
-
-    #result.elements()[0].reveal().print_reg()
-    #print_ln("SHA256 is %s", result.elements()[0].reveal())
-
-
     res = result.elements()[0]
 
-    # Parse as four 64-bit sint with 
+    # Step 4: parse res as four 64-bit sint 
     trunc_64_0 = res.TruncPr(64,0)
     trunc_128_64 = res.TruncPr(128,64)
     trunc_192_128 = res.TruncPr(192,128)
@@ -162,86 +72,124 @@ def compute_tbl_entry_sha256():
     sint_trunc_192_128 = sint.bit_compose(sint(trunc_192_128))
     sint_trunc_256_192 = sint.bit_compose(sint(trunc_256_192))
 
+    # Step 5: save truncated result to array
     hash_array = Array(4, sint)
     hash_array[0] = sint_trunc_64_0
     hash_array[1] = sint_trunc_128_64
     hash_array[2] = sint_trunc_192_128
     hash_array[3] = sint_trunc_256_192
 
-
-    #print_ln("sint of a 256 sbitint conversion. First part = %s", sint_trunc_0_128.reveal())
-    #print_ln("sint of a 256 sbitint conversion. Second part = %s", sint_trunc_128_256.reveal())
-
     return hash_array
 
 
-"""
-########################
-
-#       Preparation
-
-########################
-
-
-tbl = MultiArray([5,5], sint)
-
-@for_range_opt(5)
-def _(i):
-    @for_range_opt(5)
-    def _(j):
-        tbl[j][i] = sint(i) + sint(j)
-
-
-my_id = sint(2)
-my_type = sint(3)
-my_result = sint(0)
-my_hash = Array(4, sint)
 
 
 ########################
 
-#        Search
+#        Input         #
 
 ########################
 
+# Initizalize hardcoded parameters
+len_of_entry = 10      # Length of each entry (bytes)
+n_of_columns = 5       # Number of columns
+n_of_lines = 10         # Number of lines
 
 
-# temporary register to cover line found
-tmp_lfnd = sintbit(0)
-# final register to cover line found
-fnl_lfnd = sintbit(0)
+###                  Party 0                   ###
 
-# temporary register to cover column found
-tmp_cfnd = sintbit(0)
-# final register to cover column found
-fnl_cfnd = sintbit(0)
+user_input_id = sint.get_input_from(0)
+user_input_column = sint.get_input_from(0)
+
+###--------------------------------------------###
 
 
-#@for_range_opt(5)
-#def loop_lines(i):
-for i in range(5):
+###                  Party 1                   ###
+
+sb9 = sbits.get_type(9)
+sb512 = sbits.get_type(512)
+
+tbl = Matrix(n_of_lines, 64, sb9)
+
+for i in range(0, n_of_lines):
+    tbl[i].input_from(1)
+
+###--------------------------------------------###
+
+
+
+################################
+
+#        Search & Hash         #
+
+################################
+
+
+# Initialize types
+siv512 = sbitintvec.get_type(512)    
+
+
+# Initialize tmp variables
+tmp_lfnd = sintbit(0)  # temporary register to cover line found
+fnl_lfnd = sintbit(0)  # final register to cover line found
+
+tmp_cfnd = sintbit(0)  # temporary register to cover column found
+fnl_cfnd = sintbit(0)  # final register to cover column found
+
+
+# Initialize outputs
+output_hash = Array(4, sint)
+output_query = Array(len_of_entry, sint)
+
+
+for i in range(n_of_lines):
     
-    tmp_lfnd = tbl[i][0] == my_id
+    tmp_lfnd = i == user_input_id
     fnl_lfnd = fnl_lfnd | tmp_lfnd
 
-    cmp_hash = compute_tbl_entry_sha256()
-    
-    #@for_range_opt(5)
-    #def loop_columns(j):
-    for j in range(5):
+    # Compute hash of line i
+    line_in_bits = concatenate_to_hash(tbl[i])
+    secret_line_in_bits = siv512(line_in_bits)
+    cmp_hash = compute_tbl_entry_sha256(secret_line_in_bits)
 
-        tmp_cfnd = j == my_type
+    for j in range(n_of_columns):
+
+        tmp_cfnd = j == user_input_column
         fnl_cfnd = fnl_cfnd | tmp_cfnd
 
         match = tmp_cfnd & tmp_lfnd
 
-        my_result = if_else(match, tbl[i][j], my_result)
-        my_hash[0] = if_else(match, cmp_hash[0], my_hash[0])
-        my_hash[1] = if_else(match, cmp_hash[1], my_hash[1])
-        my_hash[2] = if_else(match, cmp_hash[2], my_hash[2])
-        my_hash[3] = if_else(match, cmp_hash[3], my_hash[3])
+        # Prepare output for query
+        for k in range(len_of_entry):
+            val = sint.bit_compose(sint(tbl[i][j*len_of_entry + k]))
+            output_query[k] = if_else(match, val, output_query[k])
+
+        # Prepare output for hash
+        output_hash[0] = if_else(match, cmp_hash[0], output_hash[0])
+        output_hash[1] = if_else(match, cmp_hash[1], output_hash[1])
+        output_hash[2] = if_else(match, cmp_hash[2], output_hash[2])
+        output_hash[3] = if_else(match, cmp_hash[3], output_hash[3])
 
 
+################################
+
+#         Print output         #
+
+################################
+
+for k in range(len_of_entry):
+    print_ln("The %s th letter of the query output is the following: %s", k, output_query[k].reveal())
+
+print_ln("hash[0:64] = %s", output_hash[0].reveal())
+print_ln("hash[64:128] = %s", output_hash[1].reveal())
+print_ln("hash[128:192] = %s", output_hash[2].reveal())
+print_ln("hash[192:256] = %s", output_hash[3].reveal())
+
+
+
+
+
+"""
 
 #if fnl_lfnd:
 #	raise CompilerError('ID (line) not found.')
@@ -250,20 +198,20 @@ for i in range(5):
 #	raise CompilerError('Type (column) not found.')
 
 # Print result
-print_ln_to(0, "This is my result: %s", my_result.reveal_to(0))
-print_ln_to(0, "hash[0:64] = %s", my_hash[0].reveal_to(0))
-print_ln_to(0, "hash[64:128] = %s", my_hash[1].reveal_to(0))
-print_ln_to(0, "hash[128:192] = %s", my_hash[2].reveal_to(0))
-print_ln_to(0, "hash[192:256] = %s", my_hash[3].reveal_to(0))
-
+#print_ln_to(0, "This is my result: %s", output_query.reveal_to(0))
+#print_ln_to(0, "hash[0:64] = %s", output_hash[0].reveal_to(0))
+#print_ln_to(0, "hash[64:128] = %s", output_hash[1].reveal_to(0))
+#print_ln_to(0, "hash[128:192] = %s", output_hash[2].reveal_to(0))
+#print_ln_to(0, "hash[192:256] = %s", output_hash[3].reveal_to(0))
 """
 
 
-message_8bits = sbits.get_input_from(0)
-sint_message_8bits = sint.bit_compose(sint(message_8bits))
-print_ln("This is 0th-party message with 8 bits: %s", sint_message_8bits.reveal())
 
+##############################################
 
+#       Testing section
+
+##############################################
 
 
     
