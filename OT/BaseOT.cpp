@@ -77,6 +77,7 @@ void BaseOT::exec_base(int my_num, int other_player, bool new_receiver_inputs)
     if (not cpu_has_avx())
         throw runtime_error("SimpleOT needs AVX support");
 
+    struct timeval Rcommunicationstart, Rcommunicationend;
 
     int i, j; //k;
     size_t len;
@@ -126,7 +127,16 @@ void BaseOT::exec_base(int my_num, int other_player, bool new_receiver_inputs)
 	    if (ot_role & RECEIVER)
 	    {
 		    receiver_okd(&qreceiver);
+
+            struct timeval rIndexListstart, rIndexListend;
+            gettimeofday(&rIndexListstart, NULL);
 		    receiver_indexlist(&qreceiver);
+            gettimeofday(&rIndexListend, NULL);
+#ifdef VERBOSE_BASEOT    
+	double hashtime = (double)(rIndexListend.tv_sec - rIndexListstart.tv_sec) + (double)(rIndexListend.tv_usec - rIndexListstart.tv_usec) / 1000000.0;
+	printf("\t\trIndexList: %f seconds\n", hashtime);
+#endif
+
 		    for (j=0; j<KEY_LENGTH/2; j++) //convert the indexlist from ints to chars (since the ints are large, we will need 2 chars to store 1 int)
 		    {
 			    receiver_char_indexlist[0][2*j] = (qreceiver.indexlist[0][j]>>8) & 0xFF;
@@ -152,6 +162,8 @@ void BaseOT::exec_base(int my_num, int other_player, bool new_receiver_inputs)
 			    os2[0].store_bytes(receiver_char_indexlist[0], sizeof(receiver_char_indexlist[0]));
 		    }
 	    }
+        
+        gettimeofday(&Rcommunicationstart, NULL);
 	    send_if_ot_receiver(P, os1, ot_role); //sending the indexlists to the sender
 	    send_if_ot_receiver(P, os2, ot_role);
 
@@ -226,6 +238,13 @@ void BaseOT::exec_base(int my_num, int other_player, bool new_receiver_inputs)
 	    {
 		    os1[1].get_bytes((octet*)u_char[0], len); //receive randomly generated chars from the sender
 		    os2[1].get_bytes((octet*)u_char[1], len);
+        
+        gettimeofday(&Rcommunicationend, NULL);
+#ifdef VERBOSE_BASEOT    
+	double comtime = (double)(Rcommunicationend.tv_sec - Rcommunicationstart.tv_sec) + (double)(Rcommunicationend.tv_usec - Rcommunicationstart.tv_usec) / 1000000.0;
+	printf("\t\tCommunication: %f seconds\n", comtime);
+#endif
+            
 
 		    for (j=0; j<12; j++) //store the random chars in long long int format
 		    {
@@ -238,12 +257,9 @@ void BaseOT::exec_base(int my_num, int other_player, bool new_receiver_inputs)
 				    | ((unsigned long long int)u_char[1][8*j+4]<<24) | ((unsigned long long int)u_char[1][8*j+5]<<16) 
 				    | ((unsigned long long int)u_char[1][8*j+6]<<8) | (unsigned long long int)u_char[1][8*j+7];
 		    }
-
+            struct timeval hashstart, hashKeyend;
+            gettimeofday(&hashstart, NULL);
 		    receiver_output(&qreceiver, u_receiver[receiver_inputs[i].get()], receiver_out); //generate receiver output
-		    //for (j=0; j<16; j++)
-			    //printf ("Receiver's output: %x  \n",receiver_out[j]);
-		    //printf ("\n\n");
-			
 		    
 		    for (j=0; j<OUTPUT_LENGTH/32; j++) //store the receiver output in the BaseOT object
 		    {
@@ -252,6 +268,11 @@ void BaseOT::exec_base(int my_num, int other_player, bool new_receiver_inputs)
 			    receiver_outputs[i].set_byte(1+4*j, (receiver_out[j]>>16) & 0xFF);
 			    receiver_outputs[i].set_byte(0+4*j, (receiver_out[j]>>24) & 0xFF);
 		    }
+            gettimeofday(&hashKeyend, NULL);
+#ifdef VERBOSE_BASEOT    
+	double hashtime = (double)(hashKeyend.tv_sec - hashstart.tv_sec) + (double)(hashKeyend.tv_usec - hashstart.tv_usec) / 1000000.0;
+	printf("\t\tHashing: %f seconds\n", hashtime);
+#endif
 
 	    }
 	    os1[0].reset_write_head();

@@ -93,7 +93,7 @@ def compute_tbl_entry_sha256(secret):
 # Initizalize hardcoded parameters
 len_of_entry = 10      # Length of each entry (bytes)
 n_of_columns = 5       # Number of columns
-n_of_lines = 10         # Number of lines
+n_of_lines = 5         # Number of lines
 
 
 ###                  Party 0                   ###

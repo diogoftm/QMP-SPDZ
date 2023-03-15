@@ -21,8 +21,8 @@ void OTTripleSetup::setup()
         else
             other_player = i;
         
-        printf("This is my_num: %d\n", my_num);
-        printf("This is other_player: %d\n", other_player);
+        //printf("This is my_num: %d\n", my_num);
+        //printf("This is other_player: %d\n", other_player);
 
         baseOTs[i]->set_receiver_inputs(base_receiver_inputs);
         baseOTs[i]->exec_base(my_num, other_player, false);
@@ -32,7 +32,7 @@ void OTTripleSetup::setup()
     gettimeofday(&baseOTend, NULL);
 #ifdef VERBOSE_BASEOT
     double basetime = timeval_diff(&baseOTstart, &baseOTend);
-    cout << "\t\tBaseTime: " << basetime/1000000 << endl << flush;
+    cout << "\t\tOverall BaseTime: " << basetime/1000000 << endl << flush;
 #endif
 
     for (size_t i = 0; i < baseOTs.size(); i++)

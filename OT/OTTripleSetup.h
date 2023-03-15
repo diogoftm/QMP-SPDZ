@@ -6,6 +6,8 @@
 #include "Tools/random.h"
 #include "Tools/time-func.h"
 
+#define VERBOSE_BASEOT true
+
 /*
  * Class for creating and storing base OTs between every pair of parties.
  */
