@@ -79,6 +79,9 @@ void send_if_ot_receiver(TwoPartyPlayer* P, vector<octetStream>& os, OT_ROLE rol
 
 void BaseOT::exec_base(bool new_receiver_inputs)
 {
+    struct timeval computationstart_1, computationend_1;
+    gettimeofday(&computationstart_1, NULL);
+
     Bundle<octetStream> bundle(*P);
 #ifdef NO_AVX_OT
     bundle.mine = string("OT without AVX");
@@ -96,6 +99,8 @@ void BaseOT::exec_base(bool new_receiver_inputs)
         exit(1);
     }
 
+    gettimeofday(&computationend_1, NULL);
+
 #ifdef NO_AVX_OT
 #ifdef USE_RISTRETTO
     typedef CurveElement Element;
@@ -104,6 +109,8 @@ void BaseOT::exec_base(bool new_receiver_inputs)
 #endif
 
     Element::init();
+
+    printf("Here");
 
     vector<Element::Scalar> as, bs;
     vector<Element> As;
@@ -148,7 +155,9 @@ void BaseOT::exec_base(bool new_receiver_inputs)
 #else
     if (not cpu_has_avx(true))
         throw runtime_error("SimpleOT needs AVX support");
-
+    
+    struct timeval computationstart_2, computationend_2;
+    gettimeofday(&computationstart_2, NULL);
     int i, j, k;
     size_t len;
     PRNG G;
@@ -163,6 +172,8 @@ void BaseOT::exec_base(bool new_receiver_inputs)
     unsigned char receiver_keys[ 4 ][ HASHBYTES ];
     unsigned char cs[ 4 ];
 
+    gettimeofday(&computationend_2, NULL);
+
     if (ot_role & SENDER)
     {
         sender_genS(&sender, S_pack);
@@ -170,9 +181,11 @@ void BaseOT::exec_base(bool new_receiver_inputs)
     }
     send_if_ot_sender(P, os, ot_role);
 
+    struct timeval computationstart_3, computationend_3;
     if (ot_role & RECEIVER)
     {
         os[1].get_bytes((octet*) receiver.S_pack, len);
+        gettimeofday(&computationstart_3, NULL);
         if (len != HASHBYTES)
         {
             cerr << "Received invalid length in base OT\n";
@@ -180,9 +193,13 @@ void BaseOT::exec_base(bool new_receiver_inputs)
         }
         receiver_procS(&receiver);
         receiver_maketable(&receiver);
+        gettimeofday(&computationend_3, NULL);
     }
 
     os[0].reset_write_head();
+
+    struct timeval computationstart_4, computationend_4;
+    gettimeofday(&computationstart_4, NULL);
 
     for (i = 0; i < nOT; i += 4)
     {
@@ -220,6 +237,8 @@ void BaseOT::exec_base(bool new_receiver_inputs)
 #endif
         }
     }
+
+    gettimeofday(&computationend_4, NULL);
 
     send_if_ot_receiver(P, os, ot_role);
         
@@ -262,7 +281,8 @@ void BaseOT::exec_base(bool new_receiver_inputs)
         #endif
     }
 #endif
-
+    struct timeval computationstart_5, computationend_5;
+    gettimeofday(&computationstart_5, NULL);
     for (int i = 0; i < nOT; i++)
     {
         if (ot_role & RECEIVER)
@@ -273,6 +293,18 @@ void BaseOT::exec_base(bool new_receiver_inputs)
     }
 
     set_seeds();
+
+    gettimeofday(&computationend_5, NULL);
+    #ifdef VERBOSE_BASEOT    
+        double comp_1 = (double)(computationend_1.tv_sec - computationstart_1.tv_sec) + (double)(computationend_1.tv_usec - computationstart_1.tv_usec) / 1000000.0;
+        double comp_2 = (double)(computationend_2.tv_sec - computationstart_2.tv_sec) + (double)(computationend_2.tv_usec - computationstart_2.tv_usec) / 1000000.0;
+        double comp_3 = (double)(computationend_3.tv_sec - computationstart_3.tv_sec) + (double)(computationend_3.tv_usec - computationstart_3.tv_usec) / 1000000.0;
+        double comp_4 = (double)(computationend_4.tv_sec - computationstart_4.tv_sec) + (double)(computationend_4.tv_usec - computationstart_4.tv_usec) / 1000000.0;
+        double comp_5 = (double)(computationend_5.tv_sec - computationstart_5.tv_sec) + (double)(computationend_5.tv_usec - computationstart_5.tv_usec) / 1000000.0;
+        if (ot_role & RECEIVER) {
+            printf("ReceiverComputation: %f seconds\n", comp_1 + comp_2 + comp_3 + comp_4 + comp_5);
+        }
+    #endif
 }
 
 void BaseOT::hash_with_id(BitVector& bits, long id)

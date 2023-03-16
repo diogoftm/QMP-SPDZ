@@ -12,6 +12,8 @@
 #include "Tools/random.h"
 #include "Tools/BitVector.h"
 
+#define VERBOSE_BASEOT true
+
 // currently always assumes BOTH, i.e. do 2 sets of OT symmetrically,
 // use bitwise & to check for role
 enum OT_ROLE
