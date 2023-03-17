@@ -31,8 +31,10 @@ void OTTripleSetup::setup()
     }
     gettimeofday(&baseOTend, NULL);
 #ifdef VERBOSE_BASEOT
-    double basetime = timeval_diff(&baseOTstart, &baseOTend);
-    cout << "\t\tOverall BaseTime: " << basetime/1000000 << endl << flush;
+    //double basetime = timeval_diff(&baseOTstart, &baseOTend); 
+    //cout << "\t\tBaseTime: " << basetime/1000000 << endl << flush;
+    double basetime = (double)(baseOTend.tv_sec - baseOTstart.tv_sec) + (double)(baseOTend.tv_usec - baseOTstart.tv_usec) / 1000000.0;
+    cout << "BaseTime: " << basetime << " seconds" <<endl << flush;
 #endif
 
     for (size_t i = 0; i < baseOTs.size(); i++)
