@@ -12,4 +12,4 @@
 	url = https://github.com/simd-everywhere/simde
 [submodule "OTKeys"]
 	path = OTKeys
-	url = https://github.com/manel1874/OTKeys.git
+	url = https://github.com/diogoftm/OTKeys.git
