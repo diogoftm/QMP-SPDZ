@@ -124,7 +124,7 @@ ecdsa-static: static-dir $(patsubst ECDSA/%.cpp,static/%.x,$(wildcard ECDSA/*-ec
 $(LIBRELEASE): Protocols/MalRepRingOptions.o $(PROCESSOR) $(COMMONOBJS) $(TINIER) $(GC)
 	$(AR) -csr $@ $^
 
-CFLAGS += -fPIC
+CFLAGS += -fPIC -no-pie
 LDLIBS += -Wl,-rpath -Wl,$(CURDIR)
 
 $(SHAREDLIB): $(PROCESSOR) $(COMMONOBJS) GC/square64.o GC/Instruction.o
@@ -269,7 +269,7 @@ $(LIBQOKDOT): OTKeys/Makefile
 OT/BaseOT.o: OTKeys/Makefile
 
 OTKeys/Makefile: 
-	git submodule update --init OTKeys
+	git submodule update --init --remote OTKeys
 	$(MAKE) -C OTKeys
 
 
