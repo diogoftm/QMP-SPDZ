@@ -93,7 +93,9 @@ $ python3 simulator.py -p 3
 
 Note: you always have to generate new oblivious keys every time you run step 3. This is because the oblivious keys get consumed (and deleted) during step 3.
 
-
+## Known problems
+The underlying MP-SPDZ has various bugs that were already fixed in the latest versions. During tests the following were noted:
+- Problems using Matrix objects, it does not hold the assigned values as expected. To mitigate use Array objects instead (a matrix is nothing more than multiple arrays next to each other);
 
 # Multi-Protocol SPDZ [![Documentation Status](https://readthedocs.org/projects/mp-spdz/badge/?version=latest)](https://mp-spdz.readthedocs.io/en/latest/?badge=latest) [![Build Status](https://dev.azure.com/data61/MP-SPDZ/_apis/build/status/data61.MP-SPDZ?branchName=master)](https://dev.azure.com/data61/MP-SPDZ/_build/latest?definitionId=7&branchName=master) [![Gitter](https://badges.gitter.im/MP-SPDZ/community.svg)](https://gitter.im/MP-SPDZ/community?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
 
