@@ -8,16 +8,19 @@
 #include "OTCorrelator.hpp"
 
 OTExtensionWithMatrix OTExtensionWithMatrix::setup(TwoPartyPlayer& player,
-        int128 delta, OT_ROLE role, bool passive)
+        int128 delta, OT_ROLE role, bool passive, Names *N)
 {
     BaseOT baseOT(128, 128, &player, INV_ROLE(role));
     PRNG G;
     G.ReSeed();
     baseOT.set_receiver_inputs(delta);
-    // To test id parameters:
-    //printf("my_num: %d\n", player.my_num());
-    //printf("other_player: %d\n", player.my_num());
-    baseOT.exec_base(player.my_num(),player.other_player_num(),false);
+    baseOT.exec_base(player.my_num(),player.other_player_num(), 
+                    N->get_name(player.my_num()),
+                    N->get_name(player.other_player_num()),
+                    N->get_portnum(player.my_num()),
+                    N->get_portnum(player.other_player_num()),
+                    N->get_sae(player.other_player_num()),
+                    false);
     return OTExtensionWithMatrix(baseOT, &player, passive);
 }
 

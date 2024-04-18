@@ -59,18 +59,22 @@ void Names::init(int player, int pnb, const string& filename, int nplayers_wante
   while (getline(hostsfile, line))
   {
     if (line.length() > 0 && line.at(0) != '#') {
-      auto pos = line.find(':');
+      auto pos = line.find(' ');
       if (pos == string::npos)
       {
-        names.push_back(line);
-        ports.push_back(default_port(nplayers));
+        throw runtime_error("invalid HOSTS file");
       }
       else
       {
-        names.push_back(line.substr(0, pos));
+        string host = line.substr(0, pos);
+        auto pos_ = host.find(':');
+        names.push_back(host.substr(0, pos_));
         int port;
-        stringstream(line.substr(pos + 1)) >> port;
+        stringstream(host.substr(pos_ + 1)) >> port;
         ports.push_back(port);
+        string sae;
+        stringstream(line.substr(pos + 1)) >> sae;
+        saes.push_back(sae);
       }
       nplayers++;
       if (nplayers_wanted > 0 and nplayers_wanted == nplayers)

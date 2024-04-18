@@ -25,7 +25,7 @@ YaoGarbler::YaoGarbler(int thread_num, YaoGarbleMaster& master) :
 		and_main_thread_timer(CLOCK_THREAD_CPUTIME_ID),
 		player(master.N, 1, "thread" + to_string(thread_num)),
 		ot_ext(OTExtensionWithMatrix::setup(player,
-				master.get_delta().get<__m128i>(), SENDER, true))
+				master.get_delta().get<__m128i>(), SENDER, true, &N))
 {
 	prng.ReSeed();
 	set_n_program_threads(master.machine.nthreads);

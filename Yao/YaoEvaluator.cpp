@@ -21,7 +21,7 @@ YaoEvaluator::YaoEvaluator(int thread_num, YaoEvalMaster& master) :
 		YaoCommon<YaoEvalWire>(master),
 		master(master),
 		player(N, 0, "thread" + to_string(thread_num)),
-		ot_ext(OTExtensionWithMatrix::setup(player, {}, RECEIVER, true))
+		ot_ext(OTExtensionWithMatrix::setup(player, {}, RECEIVER, true, &N))
 {
 	set_n_program_threads(master.machine.nthreads);
 	this->init(*this);

@@ -29,73 +29,66 @@ In the current version of the project, the programs that depend on `OTMachine.cp
 
 #### OTKeys supported
 
-The [OTKeys repository](https://github.com/manel1874/OTKeys) aims to support four types of oblivious keys. Currently, there is only one type implemented there. As such, this repository only supports the `ui_rotk` oblivious key type.
+The [OTKeys repository](https://github.com/diogoftm/OTKeys) provides support for the usage of oblivious keys and OT. Keys will be retrieved from a quantum key management system following the ETSI 014 standard REST interface. 
 
 
 ### Installation
 
 1. Clone this repository and checkout `qdev` branch:
-```
-$ git clone https://github.com/manel1874/QMP-SPDZ.git
-$ cd QMP-SPDZ
-$ git checkout qdev
-```
+    ```bash
+    git clone https://github.com/diogoftm/QMP-SPDZ.git
+    cd QMP-SPDZ
+    git checkout qdev
+    git submodule init
+    ```
 
-2. Make tldr: 
+2. Configure certificates:
 
-```
-$ make -j 8 tldr
-```
-
-3. Make `mascot-party.x` or `yao-party.x`:
-
-```
-$ make -j 8 mascot-party.x
-```
-or
-```
-$ make -j 8 yao-party.x
-```
-
-4. Make circuits:
-
-```
-$ make Programs/Circuits
-```
+    In order to communicate with the KMS to request keys, each application needs to setup properly its certificates and keys. So go to `OTKeys/makefile` and set the certificates and keys location before heading to the next step.
 
 
-## Running computation
+3. Make tldr: 
 
-Settings:
-Number of parties = 3
+    ```bash
+    make -j 8 tldr
+    ```
 
-1. Compile the high-level program (e.g. crash_detection_test)
+4. Make `mascot-party.x` or `yao-party.x`:
 
-```
-$ ./compile.py -F 64 crash_detection_test
-```
+    ```bash
+    make -j 8 mascot-party.x
+    ```
+    or
+    ```bash
+    make -j 8 yao-party.x
+    ```
 
-2. Generate oblivious keys (possibly with quantum communication) and save them into `OTKeys/keys` folder. The OTKeys submodule comes along with a simulator that generates locally the required files.
+5. Create a parties IP file:
 
-```
-$ cd OTKeys/simulator
-$ python3 simulator.py -p 3
-```
+    In this file the IP, base port and KMS application sae id need to be defined. 
 
-3. Run in three different terminal windows:
+    Example:
+    ```
+    127.0.0.1:1234 sae_001
+    127.0.0.1:1238 sae_002
+    ```
 
-`$ ./mascot-party.x -N 3 -I -p 0 crash_detection_test`
+6. Compile the MPC program (e.g. crash_detection_test):
 
-`$ ./mascot-party.x -N 3 -I -p 1 crash_detection_test`
+    ```bash
+    ./compile.py -F 64 crash_detection_test
+    ```
 
-`$ ./mascot-party.x -N 3 -I -p 2 crash_detection_test`
+7. Finally, run the computation (e.g. using mascot):
 
-
-Note: you always have to generate new oblivious keys every time you run step 3. This is because the oblivious keys get consumed (and deleted) during step 3.
+    ```bash
+    ./mascot-party.x -N 2 -I -p 0 crash_detection_test
+    ./mascot-party.x -N 2 -I -p 1 crash_detection_test
+    ```
 
 ## Known problems
 The underlying MP-SPDZ has various bugs that were already fixed in the latest versions. During tests the following were noted:
-- Problems using Matrix objects, it does not hold the assigned values as expected. To mitigate use Array objects instead (a matrix is nothing more than multiple arrays next to each other);
+- Problems using Matrix objects, it does not hold the assigned values as expected. Use Array objects instead (a matrix is nothing more than multiple arrays next to each other);
 
 # Multi-Protocol SPDZ [![Documentation Status](https://readthedocs.org/projects/mp-spdz/badge/?version=latest)](https://mp-spdz.readthedocs.io/en/latest/?badge=latest) [![Build Status](https://dev.azure.com/data61/MP-SPDZ/_apis/build/status/data61.MP-SPDZ?branchName=master)](https://dev.azure.com/data61/MP-SPDZ/_build/latest?definitionId=7&branchName=master) [![Gitter](https://badges.gitter.im/MP-SPDZ/community.svg)](https://gitter.im/MP-SPDZ/community?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
 

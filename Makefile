@@ -125,7 +125,7 @@ $(LIBRELEASE): Protocols/MalRepRingOptions.o $(PROCESSOR) $(COMMONOBJS) $(TINIER
 	$(AR) -csr $@ $^
 
 CFLAGS += -fPIC -no-pie
-LDLIBS += -Wl,-rpath -Wl,$(CURDIR)
+LDLIBS += -Wl,-rpath -Wl,$(CURDIR) -lcurl -ljansson -lcrypto
 
 $(SHAREDLIB): $(PROCESSOR) $(COMMONOBJS) GC/square64.o GC/Instruction.o
 	$(CXX) $(CFLAGS) -shared -o $@ $^ $(LDLIBS)
@@ -269,7 +269,7 @@ $(LIBQOKDOT): OTKeys/Makefile
 OT/BaseOT.o: OTKeys/Makefile
 
 OTKeys/Makefile: 
-	git submodule update --init --remote OTKeys
+	#git submodule update --init --remote OTKeys
 	$(MAKE) -C OTKeys
 
 

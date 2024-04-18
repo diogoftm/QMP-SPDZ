@@ -20,12 +20,12 @@ void OTTripleSetup::setup()
             other_player = i + 1;
         else
             other_player = i;
-        
-        //printf("This is my_num: %d\n", my_num);
-        //printf("This is other_player: %d\n", other_player);
-
         baseOTs[i]->set_receiver_inputs(base_receiver_inputs);
-        baseOTs[i]->exec_base(my_num, other_player, false);
+        baseOTs[i]->exec_base(my_num, other_player, players[0]->get_full_player().N.get_name(my_num),
+                            players[0]->get_full_player().N.get_name(other_player),
+                            players[0]->get_full_player().N.get_portnum(my_num),
+                            players[0]->get_full_player().N.get_portnum(other_player), 
+                            players[0]->get_full_player().N.get_sae(other_player).c_str(), false);
         baseSenderInputs[i] = baseOTs[i]->sender_inputs;
         baseReceiverOutputs[i] = baseOTs[i]->receiver_outputs;
     }

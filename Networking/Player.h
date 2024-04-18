@@ -38,7 +38,8 @@ class Names
   friend class Server;
 
   vector<string> names;
-  vector<int> ports;
+  vector<int>ports;
+  vector<string> saes;
   int nplayers;
   int portnum_base;
   int player_no;
@@ -124,6 +125,8 @@ class Names
   int my_num() const { return player_no; }
   const string get_name(int i) const { return names[i]; }
   int get_portnum_base() const { return portnum_base; }
+  int get_portnum(int i) const { return ports[i]; }
+  const string get_sae(int i) const { return saes[i]; }
 };
 
 

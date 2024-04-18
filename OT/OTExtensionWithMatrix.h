@@ -53,7 +53,7 @@ public:
     PRNG G;
 
     static OTExtensionWithMatrix setup(TwoPartyPlayer& player,
-            int128 delta, OT_ROLE role, bool passive);
+            int128 delta, OT_ROLE role, bool passive, Names* N);
 
     OTExtensionWithMatrix(
                 TwoPartyPlayer* player,
