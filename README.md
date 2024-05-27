@@ -1,8 +1,8 @@
 # About this fork
 
-The [`master`](https://github.com/manel1874/QMP-SPDZ/tree/master) branch is an unchanged copy of the MP-SPDZ repository.
+The [`master`](https://github.com/diogoftm/QMP-SPDZ/tree/master) branch is an unchanged copy of the MP-SPDZ repository.
 
-The [`qdev`](https://github.com/manel1874/QMP-SPDZ/tree/qdev) branch is based on the MP-SPDZ repository at commit [`565c364cd4204a8d697c7ab3d235774a15ecb29e`](https://github.com/data61/MP-SPDZ/commit/565c364cd4204a8d697c7ab3d235774a15ecb29e). It integrates the OTKeys module from [here](https://github.com/manel1874/OTKeys) and includes the following changes to the main MP-SPDZ repository:
+The [`qdev`](https://github.com/diogoftm/QMP-SPDZ/tree/qdev) branch is based on the MP-SPDZ repository at commit [`565c364cd4204a8d697c7ab3d235774a15ecb29e`](https://github.com/data61/MP-SPDZ/commit/565c364cd4204a8d697c7ab3d235774a15ecb29e). It integrates the OTKeys module from [here](https://github.com/manel1874/OTKeys) and includes the following changes to the main MP-SPDZ repository:
 
 1. Modifies the definition of the `BaseOT::exec_base(int my_num, int other_player, bool new_receiver_inputs)` function to include `my_num` and `other_player` index arguments.
 2. Makes changes to the following files to implement this change:
@@ -38,53 +38,57 @@ The [OTKeys repository](https://github.com/diogoftm/OTKeys) provides support for
     ```bash
     git clone https://github.com/diogoftm/QMP-SPDZ.git
     cd QMP-SPDZ
-    git checkout qdev
-    git submodule init
+    git submodule update --init --recursive
     ```
-
-2. Configure certificates:
-
-    In order to communicate with the KMS to request keys, each application needs to setup properly its certificates and keys. So go to `OTKeys/makefile` and set the certificates and keys location before heading to the next step.
-
-
+2. Sent environment variables:
+    Now, set the environment variables in `ENV.env`, and run:
+    ```bash
+    source ENV.env
+    ```
 3. Make tldr: 
-
     ```bash
     make -j 8 tldr
     ```
-
+    Note: This command will rename either `OTKeys_014/` or `OTKeys_004/` to `OTKeys/` based on the `KEY_REQUEST_INTERFACE`.
+    To change the interface, rename the directory back to its original name.
 4. Make `mascot-party.x` or `yao-party.x`:
-
     ```bash
     make -j 8 mascot-party.x
     ```
-    or
+    and/or
     ```bash
     make -j 8 yao-party.x
     ```
-
 5. Create a parties IP file:
-
     In this file the IP, base port and KMS application sae id need to be defined. 
 
-    Example:
+    Example (SAE IDs 014 style):
     ```
+    # players.txt
     127.0.0.1:1234 sae_001
     127.0.0.1:1238 sae_002
     ```
 
+    Example (SAE IDs 004 style):
+    ```
+    # players.txt
+    127.0.0.1:1234 qkd//app1@aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
+    127.0.0.1:1238 qkd//app2@bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb
+    ```
 6. Compile the MPC program (e.g. crash_detection_test):
-
     ```bash
     ./compile.py -F 64 crash_detection_test
     ```
-
 7. Finally, run the computation (e.g. using mascot):
-
     ```bash
-    ./mascot-party.x -N 2 -I -p 0 crash_detection_test
-    ./mascot-party.x -N 2 -I -p 1 crash_detection_test
+    ./mascot-party.x -N 2 -ip players.txt -I -p 0 crash_detection_test
+    ./mascot-party.x -N 2 -ip players.txt -I -p 1 crash_detection_test
     ```
+
+    For this computation just input 3 numbers separated by a space or by a new line. 
+    If any of the numbers match between the two paries that will be identified.
+
+    In this current version, if the ETSI 014/004 interface implementation on the KMS has all the authentication checks, to test you need to have two version of the repository each with both the sender and receiver equal, this way each will be a single SAE for both sending and receiving. This is not ideal for testing but actually is more realistic.  
 
 ## Known problems
 The underlying MP-SPDZ has various bugs that were already fixed in the latest versions. During tests the following were noted:

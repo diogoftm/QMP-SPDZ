@@ -28,4 +28,4 @@ def crash_detection(N):
 
     print_ln('There is a crash %s in x=%s; y=%s', new_c.reveal(), lx.reveal(), ly.reveal())
 
-crash_detection(3)
+crash_detection(2)

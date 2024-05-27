@@ -10,6 +10,9 @@
 [submodule "simde"]
 	path = simde
 	url = https://github.com/simd-everywhere/simde
-[submodule "OTKeys"]
-	path = OTKeys
+[submodule "OTKeys_004/OTKeys"]
+	path = OTKeys_004/OTKeys
+	url = https://github.com/diogoftm/OTKeys.git
+[submodule "OTKeys_014/OTKeys"]
+	path = OTKeys_014/OTKeys
 	url = https://github.com/diogoftm/OTKeys.git

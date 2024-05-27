@@ -13,8 +13,8 @@ extern "C"
 // #include "SimpleOT/ot_receiver.h"
 // #include "quantum_random_oblivious_transfer/qot_receiver.h"
 // #include "quantum_random_oblivious_transfer/qot_sender.h"
-#include "OTKeys/include/ui_rotk/receiver_uirotk.h"
-#include "OTKeys/include/ui_rotk/sender_uirotk.h"
+#include "OTKeys/OTKeys/include/ui_rotk/receiver_uirotk.h"
+#include "OTKeys/OTKeys/include/ui_rotk/sender_uirotk.h"
 }
 
 using namespace std;

@@ -39,8 +39,7 @@ VM += ECDSA/P256Element.o
 OT += ECDSA/P256Element.o
 MINI_OT += ECDSA/P256Element.o
 else
-#LIBSIMPLEOT = SimpleOT/libsimpleot.a
-LIBQOKDOT = OTKeys/lib/libuirotk.a
+LIBQOKDOT = OTKeys/OTKeys/lib/libuirotk.a
 endif
 
 # used for dependency generation
@@ -125,7 +124,7 @@ $(LIBRELEASE): Protocols/MalRepRingOptions.o $(PROCESSOR) $(COMMONOBJS) $(TINIER
 	$(AR) -csr $@ $^
 
 CFLAGS += -fPIC -no-pie
-LDLIBS += -Wl,-rpath -Wl,$(CURDIR) -lcurl -ljansson -lcrypto
+LDLIBS += -Wl,-rpath -Wl,$(CURDIR) -lcurl -ljansson -lcrypto -lssl -luuid -lexplain
 
 $(SHAREDLIB): $(PROCESSOR) $(COMMONOBJS) GC/square64.o GC/Instruction.o
 	$(CXX) $(CFLAGS) -shared -o $@ $^ $(LDLIBS)
@@ -256,23 +255,15 @@ static/bmr-program-party.x: $(BMR)
 static/no-party.x: Protocols/ShareInterface.o
 
 ifeq ($(AVX_OT), 1)
-#$(LIBSIMPLEOT): SimpleOT/Makefile
-#	$(MAKE) -C SimpleOT
-
-#OT/BaseOT.o: SimpleOT/Makefile
-
-#SimpleOT/Makefile:
-#	git submodule update --init SimpleOT
 
 $(LIBQOKDOT): OTKeys/Makefile
 
 OT/BaseOT.o: OTKeys/Makefile
 
-OTKeys/Makefile: 
-	#git submodule update --init --remote OTKeys
-	$(MAKE) -C OTKeys
-
-
+FILE_TO_CHECK := OTKeys_$(KEY_REQUEST_INTERFACE)
+OTKeys/Makefile:
+	-mv OTKeys_$(KEY_REQUEST_INTERFACE) OTKeys
+	$(MAKE) -C OTKeys/OTKeys
 endif
 
 .PHONY: Programs/Circuits
@@ -304,7 +295,6 @@ mac-setup: mac-machine-setup
 	brew install openssl boost libsodium mpir yasm ntl
 	-echo MY_CFLAGS += -I/usr/local/opt/openssl/include -I/opt/homebrew/opt/openssl/include -I/opt/homebrew/include >> CONFIG.mine
 	-echo MY_LDLIBS += -L/usr/local/opt/openssl/lib -L/opt/homebrew/lib -L/opt/homebrew/opt/openssl/lib >> CONFIG.mine
-#	-echo USE_NTL = 1 >> CONFIG.mine
 
 ifeq ($(MACHINE), aarch64)
 mac-machine-setup:
