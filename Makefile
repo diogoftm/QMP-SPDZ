@@ -260,7 +260,6 @@ $(LIBQOKDOT): OTKeys/Makefile
 
 OT/BaseOT.o: OTKeys/Makefile
 
-FILE_TO_CHECK := OTKeys_$(KEY_REQUEST_INTERFACE)
 OTKeys/Makefile:
 	-mv OTKeys_$(KEY_REQUEST_INTERFACE) OTKeys
 	$(MAKE) -C OTKeys/OTKeys
@@ -272,7 +271,6 @@ Programs/Circuits:
 
 .PHONY: mpir-setup mpir-global mpir
 mpir-setup:
-	git submodule update --init mpir
 	cd mpir; \
 	autoreconf -i; \
 	autoreconf -i
