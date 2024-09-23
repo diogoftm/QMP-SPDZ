@@ -25,7 +25,9 @@ void OTTripleSetup::setup()
                             players[0]->get_full_player().N.get_name(other_player),
                             players[0]->get_full_player().N.get_portnum(my_num),
                             players[0]->get_full_player().N.get_portnum(other_player), 
-                            players[0]->get_full_player().N.get_sae(other_player).c_str(), false);
+                            players[0]->get_full_player().N.get_sae(other_player).c_str(),
+                            players[0]->get_full_player().N.get_ksid(other_player),
+                            players[0]->get_full_player().N.get_index(other_player), false);
         baseSenderInputs[i] = baseOTs[i]->sender_inputs;
         baseReceiverOutputs[i] = baseOTs[i]->receiver_outputs;
     }

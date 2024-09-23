@@ -20,7 +20,10 @@ OTExtensionWithMatrix OTExtensionWithMatrix::setup(TwoPartyPlayer& player,
                     N->get_portnum(player.my_num()),
                     N->get_portnum(player.other_player_num()),
                     N->get_sae(player.other_player_num()),
+                    N->get_ksid(player.other_player_num()),
+                    N->get_index(player.other_player_num()),
                     false);
+    
     return OTExtensionWithMatrix(baseOT, &player, passive);
 }
 

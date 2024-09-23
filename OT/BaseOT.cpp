@@ -9,10 +9,6 @@
 
 extern "C"
 {
-// #include "SimpleOT/ot_sender.h"
-// #include "SimpleOT/ot_receiver.h"
-// #include "quantum_random_oblivious_transfer/qot_receiver.h"
-// #include "quantum_random_oblivious_transfer/qot_sender.h"
 #include "OTKeys/OTKeys/include/ui_rotk/receiver_uirotk.h"
 #include "OTKeys/OTKeys/include/ui_rotk/sender_uirotk.h"
 }
@@ -73,7 +69,7 @@ void send_if_ot_receiver(TwoPartyPlayer *P, vector<octetStream> &os, OT_ROLE rol
 }
 
 void BaseOT::exec_base(int my_num, int other_player, string my_ip, string other_player_ip, int my_port, int other_player_port, string other_player_sae,
-                       bool new_receiver_inputs)
+                       string ksid, int index, bool new_receiver_inputs)
 {
     if (not cpu_has_avx())
         throw runtime_error("SimpleOT needs AVX support");
@@ -97,6 +93,14 @@ void BaseOT::exec_base(int my_num, int other_player, string my_ip, string other_
     strcpy(qsender.my_ip, my_ip.c_str());
     strcpy(qsender.other_player_ip, other_player_ip.c_str());
     strcpy(qsender.other_player_sai_id, other_player_sae.c_str());
+    qsender.key_index = index;
+
+    if (my_num > other_player)
+        qsender.key_index++;
+
+    qsender.ksid = new char[ksid.size() + 1];
+
+    std::strcpy(qsender.ksid, ksid.c_str());
 
     OKDOT_RECEIVER qreceiver; // receiver structure
     qreceiver.my_num = my_num;
@@ -108,6 +112,14 @@ void BaseOT::exec_base(int my_num, int other_player, string my_ip, string other_
     strcpy(qreceiver.my_ip, my_ip.c_str());
     strcpy(qreceiver.other_player_ip, other_player_ip.c_str());
     strcpy(qreceiver.other_player_sai_id, other_player_sae.c_str());
+    qreceiver.key_index = index;
+
+    qreceiver.ksid = new char[ksid.size() + 1];
+
+    std::strcpy(qreceiver.ksid, ksid.c_str());
+
+    if (my_num < other_player)
+        qreceiver.key_index++;
 
     unsigned char sender_out[2][OUTPUT_LENGTH / 32]; // stores sender outputs
     unsigned char receiver_out[OUTPUT_LENGTH / 32];  // stores receiver outputs

@@ -75,6 +75,20 @@ void Names::init(int player, int pnb, const string& filename, int nplayers_wante
         string sae;
         stringstream(line.substr(pos + 1)) >> sae;
         saes.push_back(sae);
+        pos = pos + sae.length() + 1;
+
+        if (line.length() > pos){
+          string ksid;
+          stringstream(line.substr(pos)) >> ksid;
+          ksids.push_back(ksid);
+          pos = pos + ksid.length() + 1;
+          int index;
+          stringstream(line.substr(pos)) >> index;
+          indexes.push_back(index);
+        } else{
+          indexes.push_back(0);
+          ksids.push_back("00000000-0000-0000-0000-000000000000");
+        }
       }
       nplayers++;
       if (nplayers_wanted > 0 and nplayers_wanted == nplayers)
@@ -82,7 +96,7 @@ void Names::init(int player, int pnb, const string& filename, int nplayers_wante
     }
   }
   if (nplayers_wanted > 0 and nplayers_wanted != nplayers)
-    throw runtime_error("not enought hosts in HOSTS");
+    throw runtime_error("not enough hosts in HOSTS");
 #ifdef DEBUG_NETWORKING
   cerr << "Got list of " << nplayers << " players from file: " << endl;
   for (unsigned int i = 0; i < names.size(); i++)
