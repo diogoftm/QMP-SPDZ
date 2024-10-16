@@ -69,17 +69,19 @@ The [OTKeys repository](https://github.com/diogoftm/OTKeys) provides support for
     127.0.0.1:1238 sae_002
     ```
 
-    Example (SAE IDs 004 style):
+    For 004, not only the IDs of the application need to be provided, but also the key stream id and the index of the keys to be used need to be provided for each peer.
+
+    Example (SAE IDs 004 style and considering that this is the config file for party 0):
     ```
     # players.txt
-    127.0.0.1:1234 qkd//app1@aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
-    127.0.0.1:1238 qkd//app2@bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb
+    127.0.0.1:1234 qkd//app1@aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa - -
+    127.0.0.1:1238 qkd//app2@bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb 550e8400-e29b-41d4-a716-446655440000 2
     ```
-6. Compile the MPC program (e.g. crash_detection_test):
+7. Compile the MPC program (e.g. crash_detection_test):
     ```bash
     ./compile.py -F 64 crash_detection_test
     ```
-7. Finally, run the computation (e.g. using mascot):
+8. Finally, run the computation (e.g. using mascot):
     ```bash
     ./mascot-party.x -N 2 -ip players.txt -I -p 0 crash_detection_test
     ./mascot-party.x -N 2 -ip players.txt -I -p 1 crash_detection_test
@@ -88,7 +90,9 @@ The [OTKeys repository](https://github.com/diogoftm/OTKeys) provides support for
     For this computation just input 3 numbers separated by a space or by a new line. 
     If any of the numbers match between the two paries that will be identified.
 
-    In this current version, if the ETSI 014/004 interface implementation on the KMS has all the authentication checks, to test you need to have two version of the repository each with both the sender and receiver equal, this way each will be a single SAE for both sending and receiving. This is not ideal for testing but actually is more realistic.  
+The current version supports the following KMS interfaces:
+- [ETSI QKD 014](https://www.etsi.org/deliver/etsi_gs/QKD/001_099/014/01.01.01_60/gs_qkd014v010101p.pdf) ([Demo server/client](https://github.com/diogoftm/simulated-kms))
+- [ETSI QKD 004](https://www.etsi.org/deliver/etsi_gs/QKD/001_099/004/02.01.01_60/gs_QKD004v020101p.pdf) ([Demo server/client](https://github.com/diogoftm/minimal-etsi-qkd-004))
 
 ## Known problems
 The underlying MP-SPDZ has various bugs that were already fixed in the latest versions. During tests the following were noted:
