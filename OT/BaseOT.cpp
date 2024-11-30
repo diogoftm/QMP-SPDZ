@@ -95,9 +95,6 @@ void BaseOT::exec_base(int my_num, int other_player, string my_ip, string other_
     strcpy(qsender.other_player_sai_id, other_player_sae.c_str());
     qsender.key_index = index;
 
-    if (my_num > other_player)
-        qsender.key_index++;
-
     qsender.ksid = new char[ksid.size() + 1];
 
     std::strcpy(qsender.ksid, ksid.c_str());
@@ -117,9 +114,6 @@ void BaseOT::exec_base(int my_num, int other_player, string my_ip, string other_
     qreceiver.ksid = new char[ksid.size() + 1];
 
     std::strcpy(qreceiver.ksid, ksid.c_str());
-
-    if (my_num < other_player)
-        qreceiver.key_index++;
 
     unsigned int sender_out[2][OUTPUT_LENGTH / 32]; // stores sender outputs
     unsigned int receiver_out[OUTPUT_LENGTH / 32];  // stores receiver outputs
