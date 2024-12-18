@@ -43,7 +43,7 @@ The [OTKeys repository](https://github.com/diogoftm/OTKeys) provides support for
 2. Sent environment variables:
     Now, set the environment variables in `ENV.env`, and run:
     ```bash
-    source ENV.env
+    source ENV.sh
     ```
 3. Make tldr: 
     ```bash
@@ -88,7 +88,7 @@ The [OTKeys repository](https://github.com/diogoftm/OTKeys) provides support for
     ```
 
     For this computation just input 3 numbers separated by a space or by a new line. 
-    If any of the numbers match between the two paries that will be identified.
+    The first value is the flag that tells if there was a crash or not, the other two values are the $(x, y)$ coordinates. 
 
 The current version supports the following KMS interfaces:
 - [ETSI QKD 014](https://www.etsi.org/deliver/etsi_gs/QKD/001_099/014/01.01.01_60/gs_qkd014v010101p.pdf) ([Demo server/client](https://github.com/diogoftm/simulated-kms))
