@@ -11,10 +11,24 @@
 #include "ShamirInput.hpp"
 
 template<class T>
-SemiInput<T>::SemiInput(SubProcessor<T>* proc, Player& P) :
-        InputBase<T>(proc), P(P)
+SemiInput<T>::SemiInput(SubProcessor<T>* proc, PlayerBase& P) :
+        PairwiseKeyInput<T>(proc, P), P(P)
 {
-    shares.resize(P.num_players());
+    this->reset_all(P);
+}
+
+template<class T>
+PairwiseKeyInput<T>::PairwiseKeyInput(SubProcessor<T>* proc, PlayerBase&) :
+        PrepLessInput<T>(proc)
+{
+}
+
+template<class T>
+void PairwiseKeyInput<T>::maybe_init(PlayerBase& P)
+{
+    if (send_prngs.size() > 0)
+        return;
+
     vector<octetStream> to_send(P.num_players()), to_receive;
     for (int i = 0; i < P.num_players(); i++)
     {
@@ -26,31 +40,33 @@ SemiInput<T>::SemiInput(SubProcessor<T>* proc, Player& P) :
     for (int i = 0; i < P.num_players(); i++)
         if (i != P.my_num())
             recv_prngs[i].SetSeed(to_receive[i].consume(SEED_SIZE));
-    this->reset_all(P);
 }
 
 template<class T>
 void SemiInput<T>::reset(int player)
 {
-    shares[player].clear();
+    if (player == P.my_num())
+        this->shares.clear();
 }
 
 template<class T>
 void SemiInput<T>::add_mine(const typename T::clear& input, int)
 {
+	this->maybe_init(P);
 	auto& P = this->P;
 	typename T::open_type sum, share;
 	for (int i = 0; i < P.num_players(); i++)
 	{
 	    if (i != P.my_num())
-	        sum += send_prngs[i].template get<typename T::open_type>();
+	        sum += this->send_prngs[i].template get<typename T::open_type>();
 	}
-    shares[P.my_num()].push_back(input - sum);
+	this->shares.push_back(input - sum);
 }
 
 template<class T>
 void SemiInput<T>::add_other(int, int)
 {
+    this->maybe_init(P);
 }
 
 template<class T>
@@ -62,13 +78,13 @@ template<class T>
 void SemiInput<T>::finalize_other(int player, T& target, octetStream&,
         int)
 {
-    target = recv_prngs[player].template get<T>();
+    target = this->recv_prngs.at(player).template get<T>();
 }
 
 template<class T>
 T SemiInput<T>::finalize_mine()
 {
-    return shares[P.my_num()].next();
+    return this->shares.next();
 }
 
 #endif

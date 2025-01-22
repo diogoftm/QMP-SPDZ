@@ -11,6 +11,8 @@
 
 #include "instructions.h"
 
+#include "Tools/benchmarking.h"
+
 #include "Machine.hpp"
 
 namespace GC
@@ -58,31 +60,44 @@ Thread<T>* ThreadMaster<T>::new_thread(int i)
 template<class T>
 void ThreadMaster<T>::run()
 {
-#ifndef INSECURE
+    if (opts.has_option("throw_exceptions"))
+        run_with_error();
+    else
+    {
+        try
+        {
+            run_with_error();
+        }
+        catch (exception& e)
+        {
+            cerr << "Fatal error: " << e.what() << endl;
+            exit(1);
+        }
+    }
+}
+
+template<class T>
+void ThreadMaster<T>::run_with_error()
+{
     if (not opts.live_prep)
     {
-        cerr
-                << "Preprocessing from file not supported by binary virtual machines"
-                << endl;
-        exit(1);
+        insecure("preprocessing from file in binary virtual machines");
     }
-#endif
 
     P = new PlainPlayer(N, "main");
 
     machine.load_schedule(progname);
-
-    if (T::needs_ot)
-        for (int i = 0; i < machine.nthreads; i++)
-            machine.ot_setups.push_back({*P, true});
+    machine.reset(machine.progs[0], memory);
 
     for (int i = 0; i < machine.nthreads; i++)
         threads.push_back(new_thread(i));
+    // must start after constructor due to virtual functions
+    for (auto thread : threads)
+        thread->start();
     for (auto thread : threads)
         thread->join_tape();
 
-    Timer timer;
-    timer.start();
+    machine.reset_timer();
 
     threads[0]->tape_schedule.push(0);
 
@@ -104,13 +119,15 @@ void ThreadMaster<T>::run()
         delete thread;
     }
 
-    delete P;
-
-    exe_stats.print();
+    if (not exe_stats.empty())
+        exe_stats.print();
     stats.print();
 
-    cerr << "Time = " << timer.elapsed() << " seconds" << endl;
-    cerr << "Data sent = " << stats.sent * 1e-6 << " MB" << endl;
+    machine.print_timers();
+
+    machine.print_comm(*P, stats);
+
+    delete P;
 }
 
 } /* namespace GC */

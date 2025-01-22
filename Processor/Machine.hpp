@@ -6,6 +6,7 @@
 #include "Memory.hpp"
 #include "Online-Thread.hpp"
 #include "Protocols/Hemi.hpp"
+#include "Protocols/fake-stuff.hpp"
 
 #include "Tools/Exceptions.h"
 
@@ -23,28 +24,64 @@
 using namespace std;
 
 template<class sint, class sgf2n>
-Machine<sint, sgf2n>::Machine(int my_number, Names& playerNames,
-    const string& progname_str, const string& memtype,
-    int lg2, bool direct,
-    int opening_sum, bool receive_threads, int max_broadcast,
-    bool use_encryption, bool live_prep, OnlineOptions opts)
-  : my_number(my_number), N(playerNames),
-    direct(direct), opening_sum(opening_sum),
-    receive_threads(receive_threads), max_broadcast(max_broadcast),
-    use_encryption(use_encryption), live_prep(live_prep), opts(opts)
+void Machine<sint, sgf2n>::init_binary_domains(int security_parameter, int lg2)
 {
-  if (opening_sum < 2)
-    this->opening_sum = N.num_players();
-  if (max_broadcast < 2)
-    this->max_broadcast = N.num_players();
-
-  // Set up the fields
   sgf2n::clear::init_field(lg2);
-  sint::clear::read_or_generate_setup(prep_dir_prefix<sint>(), opts);
-  sint::bit_type::mac_key_type::init_field();
 
-  // Initialize gf2n_short for CCD
-  sint::bit_type::part_type::open_type::init_field();
+  if (not is_same<typename sgf2n::mac_key_type, GC::NoValue>())
+    {
+      if (sgf2n::mac_key_type::length() < security_parameter)
+        {
+          cerr << "Security parameter needs to be at most n in GF(2^n)."
+              << endl;
+          cerr << "Increase the latter (-lg2) or decrease the former (-S)."
+              << endl;
+          exit(1);
+        }
+    }
+
+  if (not is_same<typename sint::bit_type::mac_key_type, GC::NoValue>())
+    {
+      sint::bit_type::mac_key_type::init_minimum(security_parameter);
+    }
+  else
+    {
+      // Initialize field for CCD
+      sint::bit_type::part_type::open_type::init_field();
+    }
+}
+
+template<class sint, class sgf2n>
+Machine<sint, sgf2n>::Machine(Names& playerNames, bool use_encryption,
+    const OnlineOptions opts, int lg2)
+  : my_number(playerNames.my_num()), N(playerNames),
+    use_encryption(use_encryption), live_prep(opts.live_prep), opts(opts),
+    external_clients(my_number)
+{
+  OnlineOptions::singleton = opts;
+
+  int min_players = 3 - sint::dishonest_majority;
+  if (sint::is_real)
+    {
+      if (N.num_players() == 1)
+        {
+          cerr << "Need more than one player to run a protocol." << endl;
+          cerr << "Use 'emulate.x' for just running the virtual machine" << endl;
+          exit(1);
+        }
+      else if (N.num_players() < min_players)
+        {
+          cerr << "Need at least " << min_players << " players for this protocol."
+              << endl;
+          exit(1);
+        }
+    }
+
+  // Set the prime modulus from command line or program if applicable
+  if (opts.prime)
+    sint::clear::init_field(opts.prime);
+
+  init_binary_domains(opts.security_parameter, lg2);
 
   // make directory for outputs if necessary
   mkdir_p(PREP_DIR);
@@ -60,10 +97,28 @@ Machine<sint, sgf2n>::Machine(int my_number, Names& playerNames,
       sint::LivePrep::basic_setup(*P);
     }
 
-  sint::read_or_generate_mac_key(prep_dir_prefix<sint>(), *P, alphapi);
-  sgf2n::read_or_generate_mac_key(prep_dir_prefix<sgf2n>(), *P, alpha2i);
-  sint::bit_type::part_type::read_or_generate_mac_key(
-      prep_dir_prefix<typename sint::bit_type::part_type>(), *P, alphabi);
+  // Set the prime modulus if not done earlier
+  if (not sint::clear::length())
+    sint::clear::read_or_generate_setup(prep_dir_prefix<sint>(), opts);
+
+  sint::MAC_Check::setup(*P);
+  sint::bit_type::MAC_Check::setup(*P);
+  sgf2n::MAC_Check::setup(*P);
+
+  if (opts.live_prep)
+    alphapi = read_generate_write_mac_key<sint>(*P);
+  else
+    {
+      // check for directory
+      Sub_Data_Files<sint>::check_setup(N);
+      // require existing MAC key
+      if (sint::has_mac)
+        read_mac_key<sint>(N, alphapi);
+    }
+
+  alpha2i = read_generate_write_mac_key<sgf2n>(*P);
+  alphabi = read_generate_write_mac_key<typename
+      sint::bit_type::part_type>(*P);
 
 #ifdef DEBUG_MAC
   cerr << "MAC Key p = " << alphapi << endl;
@@ -74,6 +129,7 @@ Machine<sint, sgf2n>::Machine(int my_number, Names& playerNames,
   sint::clear::next::template init<typename sint::clear>(false);
 
   // Initialize the global memory
+  auto memtype = opts.memtype;
   if (memtype.compare("old")==0)
      {
        ifstream inpf;
@@ -91,8 +147,18 @@ Machine<sint, sgf2n>::Machine(int my_number, Names& playerNames,
      { cerr << "Invalid memory argument" << endl;
        exit(1);
      }
+}
 
+template<class sint, class sgf2n>
+void Machine<sint, sgf2n>::prepare(const string& progname_str)
+{
+  int old_n_threads = nthreads;
+  progs.clear();
   load_schedule(progname_str);
+  check_program();
+
+  // keep preprocessing
+  nthreads = max(old_n_threads, nthreads);
 
   // initialize persistence if necessary
   for (auto& prog : progs)
@@ -118,20 +184,13 @@ Machine<sint, sgf2n>::Machine(int my_number, Names& playerNames,
   progs[0].print_offline_cost();
 #endif
 
-  if (live_prep
-      and (sint::needs_ot or sgf2n::needs_ot or sint::bit_type::needs_ot))
-  {
-    for (int i = 0; i < nthreads; i++)
-      ot_setups.push_back({ *P, true });
-  }
-
   /* Set up the threads */
   tinfo.resize(nthreads);
   threads.resize(nthreads);
   queues.resize(nthreads);
   join_timer.resize(nthreads);
 
-  for (int i=0; i<nthreads; i++)
+  for (int i = old_n_threads; i < nthreads; i++)
     {
       queues[i] = new ThreadQueue;
       // stand-in for initialization
@@ -145,7 +204,7 @@ Machine<sint, sgf2n>::Machine(int my_number, Names& playerNames,
     }
 
   // synchronize with clients before starting timer
-  for (int i=0; i<nthreads; i++)
+  for (int i=old_n_threads; i<nthreads; i++)
     {
       queues[i]->result();
     }
@@ -154,13 +213,20 @@ Machine<sint, sgf2n>::Machine(int my_number, Names& playerNames,
 template<class sint, class sgf2n>
 Machine<sint, sgf2n>::~Machine()
 {
+  stop_threads();
+
+  sint::LivePrep::teardown();
+  sgf2n::LivePrep::teardown();
+
+  sint::MAC_Check::teardown();
+  sint::bit_type::MAC_Check::teardown();
+  sgf2n::MAC_Check::teardown();
+
   delete P;
-  for (auto& queue : queues)
-    delete queue;
 }
 
 template<class sint, class sgf2n>
-void Machine<sint, sgf2n>::load_program(const string& threadname,
+size_t Machine<sint, sgf2n>::load_program(const string& threadname,
     const string& filename)
 {
   progs.push_back(N.num_players());
@@ -169,6 +235,8 @@ void Machine<sint, sgf2n>::load_program(const string& threadname,
   M2.minimum_size(SGF2N, CGF2N, progs[i], threadname);
   Mp.minimum_size(SINT, CINT, progs[i], threadname);
   Mi.minimum_size(NONE, INT, progs[i], threadname);
+  bit_memories.reset(progs[i]);
+  return progs.back().size();
 }
 
 template<class sint, class sgf2n>
@@ -273,14 +341,16 @@ void Machine<sint, sgf2n>::fill_matmul(int thread_number, int tape_number,
                   auto subdim = it->first;
                   subdim[1] = min(subdim[1] - j, max_inner);
                   subdim[2] = min(subdim[2] - k, max_cols);
-                  auto& source =
-                      dynamic_cast<Hemi<sint>&>(source_proc.protocol).get_matrix_prep(
+                  auto& source_proto = dynamic_cast<Hemi<sint>&>(source_proc.protocol);
+                  auto& source = source_proto.get_matrix_prep(
                           subdim, source_proc);
                   auto& dest =
                       dynamic_cast<Hemi<sint>&>(tinfo[thread_number].processor->Procp.protocol).get_matrix_prep(
                           subdim, tinfo[thread_number].processor->Procp);
-                  for (int i = 0; i < it->second; i++)
-                    dest.push_triple(source.get_triple_no_count(-1));
+                  if (not source_proto.use_plain_matmul(subdim, source_proc))
+                    for (int i = 0; i < it->second; i++)
+                      dynamic_cast<BufferPrep<ShareMatrix<sint>>&>(dest).push_triple(
+                          source.get_triple_no_count(-1));
                 }
             }
       }
@@ -307,14 +377,12 @@ DataPositions Machine<sint, sgf2n>::run_tape(int thread_number, int tape_number,
   //printf("Running line %d\n",exec);
   if (progs[tape_number].usage_unknown())
     {
-#ifndef INSECURE
       if (not opts.live_prep and thread_number != 0)
         {
-          cerr << "Internally called tape " << tape_number <<
-              " has unknown offline data usage" << endl;
-          throw invalid_program();
+          insecure(
+              "Internally called tape " + to_string(tape_number)
+                  + " has unknown offline data usage");
         }
-#endif
       return DataPositions(N.num_players());
     }
   else
@@ -335,23 +403,86 @@ DataPositions Machine<sint, sgf2n>::join_tape(int i)
 }
 
 template<class sint, class sgf2n>
-void Machine<sint, sgf2n>::run()
+void Machine<sint, sgf2n>::run_step(const string& progname)
 {
-  Timer proc_timer(CLOCK_PROCESS_CPUTIME_ID);
-  proc_timer.start();
-  timer[0].start({});
-
-  // run main tape
+  prepare(progname);
   run_tape(0, 0, 0, N.num_players());
   join_tape(0);
+}
 
-  print_compiler();
+template<class sint, class sgf2n>
+void Machine<sint, sgf2n>::run_function(const string& name,
+        FunctionArgument& result, vector<FunctionArgument>& arguments)
+{
+  ifstream file;
+  FunctionArgument::open(file, name, arguments);
 
-  finish_timer.start();
+  string progname, return_type;
+  int tape_number, return_reg;
+  file >> progname >> tape_number >> return_type >> return_reg;
+
+  result.check_type(return_type);
+
+  vector<int> arg_regs(arguments.size());
+  for (auto& arg_reg : arg_regs)
+    file >> arg_reg;
+
+  prepare(progname);
+  auto& processor = *tinfo.at(0).processor;
+  processor.reset(progs.at(tape_number), 0);
+
+  for (size_t i = 0; i < arguments.size(); i++)
+    for (size_t j = 0; j < arguments[i].get_size(); j++)
+      {
+        if (arguments[i].get_n_bits())
+          {
+            size_t n_limbs = DIV_CEIL(arguments[i].get_n_bits(),
+                sint::bit_type::default_length);
+            for (size_t k = 0; k < n_limbs; k++)
+              bit_memories.MS[arg_regs.at(i) + j * n_limbs + k] =
+                  arguments[i].get_value<vector<typename sint::bit_type>>(j).at(
+                      k);
+          }
+        else
+          {
+            auto& value = arguments[i].get_value<sint>(j);
+            if (arguments[i].get_memory())
+              Mp.MS[arg_regs.at(i) + j] = value;
+            else
+              processor.Procp.get_S()[arg_regs.at(i) + j] = value;
+          }
+      }
+
+  run_tape(0, tape_number, 0, N.num_players());
+  join_tape(0);
+
+  for (size_t j = 0; j < result.get_size(); j++)
+    result.get_value<sint>(j) = processor.Procp.get_S()[return_reg + j];
+
+  for (size_t i = 0; i < arguments.size(); i++)
+    if (arguments[i].get_memory())
+      for (size_t j = 0; j < arguments[i].get_size(); j++)
+        {
+          if (arguments[i].get_n_bits())
+            {
+              size_t n_limbs = DIV_CEIL(arguments[i].get_n_bits(),
+                  sint::bit_type::default_length);
+              for (size_t k = 0; k < n_limbs; k++)
+                arguments[i].get_value<vector<typename sint::bit_type>>(j).at(k) =
+                    bit_memories.MS[arg_regs.at(i) + j * n_limbs + k];
+            }
+          else
+            arguments[i].get_value<sint>(j) = Mp.MS[arg_regs.at(i) + j];
+        }
+}
+
+template<class sint, class sgf2n>
+pair<DataPositions, NamedCommStats> Machine<sint, sgf2n>::stop_threads()
+{
   // Tell all C-threads to stop
   for (int i=0; i<nthreads; i++)
     {
-	//printf("Send kill signal to client\n");
+      //printf("Send kill signal to client\n");
       queues[i]->schedule(-1);
     }
 
@@ -368,6 +499,50 @@ void Machine<sint, sgf2n>::run()
       pos.increase(queues[i]->result().pos);
       pthread_join(threads[i],NULL);
     }
+
+  auto comm_stats = total_comm();
+
+  if (OnlineOptions::singleton.verbose)
+    {
+      NamedStats total;
+      for (auto queue : queues)
+        total += queue->stats;
+      total.print();
+      queues.print_breakdown();
+    }
+
+  for (auto& queue : queues)
+    delete queue;
+
+  queues.clear();
+
+  nthreads = 0;
+
+  return {pos, comm_stats};
+}
+
+template<class sint, class sgf2n>
+void Machine<sint, sgf2n>::run(const string& progname)
+{
+  prepare(progname);
+
+  Timer proc_timer(CLOCK_PROCESS_CPUTIME_ID);
+  proc_timer.start();
+  timer[0].start({});
+
+  // run main tape
+  run_tape(0, 0, 0, N.num_players());
+  join_tape(0);
+
+  print_compiler();
+
+  finish_timer.start();
+
+  // actual usage
+  multithread = nthreads > 1;
+  auto res = stop_threads();
+  DataPositions& pos = res.first;
+
   finish_timer.stop();
   
 #ifdef VERBOSE
@@ -386,32 +561,25 @@ void Machine<sint, sgf2n>::run()
   cerr << "Finish timer: " << finish_timer.elapsed() << endl;
 #endif
 
-  NamedCommStats comm_stats = total_comm();
+  NamedCommStats& comm_stats = res.second;
 
   if (opts.verbose)
     {
-      cerr << "Communication details "
-          "(rounds in parallel threads counted double):" << endl;
+      cerr << "Communication details";
+      if (multithread)
+        cerr << " (rounds in parallel threads counted double)";
+      cerr << ":" << endl;
       comm_stats.print();
-      cerr << "CPU time = " <<  proc_timer.elapsed() << endl;
+      cerr << "CPU time = " <<  proc_timer.elapsed();
+      if (multithread)
+        cerr << " (overall core time)";
+      cerr << endl;
     }
 
   print_timers();
 
-  size_t rounds = 0;
-  for (auto& x : comm_stats)
-      rounds += x.second.rounds;
-  cerr << "Data sent = " << comm_stats.sent / 1e6 << " MB in ~" << rounds
-      << " rounds (party " << my_number << ")" << endl;
-
-  auto& P = *this->P;
-  Bundle<octetStream> bundle(P);
-  bundle.mine.store(comm_stats.sent);
-  P.Broadcast_Receive_no_stats(bundle);
-  size_t global = 0;
-  for (auto& os : bundle)
-      global += os.get_int(8);
-  cerr << "Global data sent = " << global / 1e6 << " MB (all parties)" << endl;
+  if (sint::is_real)
+    this->print_comm(*this->P, comm_stats);
 
 #ifdef VERBOSE_OPTIONS
   if (opening_sum < N.num_players() && !direct)
@@ -425,14 +593,15 @@ void Machine<sint, sgf2n>::run()
     cerr << "Full broadcast" << endl;
 #endif
 
-#ifdef CHOP_MEMORY
-  // Reduce memory size to speed up
-  unsigned max_size = 1 << 20;
-  if (M2.size_s() > max_size)
-    M2.resize_s(max_size);
-  if (Mp.size_s() > max_size)
-    Mp.resize_s(max_size);
-#endif
+  if (not OnlineOptions::singleton.has_option("output_full_memory"))
+    {
+      // Reduce memory size to speed up
+      unsigned max_size = 1 << 20;
+      if (M2.size_s() > max_size)
+        M2.resize_s(max_size);
+      if (Mp.size_s() > max_size)
+        Mp.resize_s(max_size);
+    }
 
   // Write out the memory to use next time
   ofstream outf(memory_filename(), ios::out | ios::binary);
@@ -441,23 +610,6 @@ void Machine<sint, sgf2n>::run()
   outf.close();
 
   bit_memories.write_memory(N.my_num());
-
-#ifdef OLD_USAGE
-  for (int dtype = 0; dtype < N_DTYPE; dtype++)
-    {
-      cerr << "Num " << DataPositions::dtype_names[dtype] << "\t=";
-      for (int field_type = 0; field_type < N_DATA_FIELD_TYPE; field_type++)
-        cerr << " " << pos.files[field_type][dtype];
-      cerr << endl;
-   }
-  for (int field_type = 0; field_type < N_DATA_FIELD_TYPE; field_type++)
-    {
-      cerr << "Num " << DataPositions::field_names[field_type] << " Inputs\t=";
-      for (int i = 0; i < N.num_players(); i++)
-        cerr << " " << pos.inputs[i][field_type];
-      cerr << endl;
-    }
-#endif
 
   if (opts.verbose)
     {
@@ -474,19 +626,22 @@ void Machine<sint, sgf2n>::run()
       stats.print();
     }
 
-#ifndef INSECURE
   if (not opts.file_prep_per_thread)
     {
       Data_Files<sint, sgf2n> df(*this);
       df.seekg(pos);
       df.prune();
     }
-#endif
-
-  sint::LivePrep::teardown();
-  sgf2n::LivePrep::teardown();
 
   suggest_optimizations();
+
+  if (N.num_players() > 4)
+    {
+      string alt = sint::alt();
+      if (alt.size())
+        cerr << "This protocol doesn't scale well with the number of parties, "
+            << "have you considered using " << alt << " instead?" << endl;
+    }
 
 #ifdef VERBOSE
   cerr << "End of prog" << endl;
@@ -513,6 +668,17 @@ void Machine<sint, sgf2n>::reqbl(int n)
 }
 
 template<class sint, class sgf2n>
+void Machine<sint, sgf2n>::active(int n)
+{
+
+  if (sint::malicious and n == 0)
+    {
+      cerr << "Program requires a semi-honest protocol" << endl;
+      exit(1);
+    }
+}
+
+template<class sint, class sgf2n>
 void Machine<sint, sgf2n>::suggest_optimizations()
 {
   string optimizations;
@@ -521,12 +687,35 @@ void Machine<sint, sgf2n>::suggest_optimizations()
   if (relevant_opts.find("split") != string::npos and sint::has_split)
     optimizations.append(
         "\tprogram.use_split(" + to_string(N.num_players()) + ")\n");
-  if (relevant_opts.find("edabit") != string::npos and not sint::has_split)
+  if (relevant_opts.find("edabit") != string::npos and not sint::has_split and sint::is_real)
     optimizations.append("\tprogram.use_edabit(True)\n");
   if (not optimizations.empty())
     cerr << "This program might benefit from some protocol options." << endl
-        << "Consider adding the following at the beginning of '" << progname
-        << ".mpc':" << endl << optimizations;
+        << "Consider adding the following at the beginning of your code:"
+        << endl << optimizations;
+#ifndef __clang__
+  cerr << "This virtual machine was compiled with GCC. Recompile with "
+      "'CXX = clang++' in 'CONFIG.mine' for optimal performance." << endl;
+#endif
+}
+
+template<class sint, class sgf2n>
+void Machine<sint, sgf2n>::check_program()
+{
+  Hash hasher;
+  for (auto& prog : progs)
+    hasher.update(prog.get_hash());
+  assert(P);
+  Bundle<octetStream> bundle(*P);
+  hasher.final(bundle.mine);
+  try
+  {
+    bundle.compare(*P);
+  }
+  catch (mismatch_among_parties&)
+  {
+    throw runtime_error("program differs between parties");
+  }
 }
 
 #endif

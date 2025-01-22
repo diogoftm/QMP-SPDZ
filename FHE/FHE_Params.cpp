@@ -1,10 +1,13 @@
 
 #include "FHE_Params.h"
+#include "NTL-Subs.h"
 #include "FHE/Ring_Element.h"
 #include "Tools/Exceptions.h"
+#include "Protocols/HemiOptions.h"
+#include "Processor/OnlineOptions.h"
 
-FHE_Params::FHE_Params(int n_mults) :
-    FFTData(n_mults + 1), Chi(0.7), sec_p(-1), matrix_dim(1)
+FHE_Params::FHE_Params(int n_mults, int drown_sec) :
+    FFTData(n_mults + 1), Chi(0.7), sec_p(drown_sec), matrix_dim(1)
 {
 }
 
@@ -17,16 +20,20 @@ void FHE_Params::set(const Ring& R,
   for (size_t i = 0; i < FFTData.size(); i++)
     FFTData[i].init(R,primes[i]);
 
-  set_sec(40);
+  set_sec(sec_p);
 }
 
 void FHE_Params::set_sec(int sec)
 {
+  assert(sec >= 0);
   sec_p=sec;
   Bval=1;  Bval=Bval<<sec_p;
   Bval=FFTData[0].get_prime()/(2*(1+Bval));
-  if (Bval == 0)
-    throw runtime_error("distributed decryption bound is zero");
+}
+
+void FHE_Params::set_min_sec(int sec)
+{
+  set_sec(max(sec, sec_p));
 }
 
 void FHE_Params::set_matrix_dim(int matrix_dim)
@@ -35,6 +42,13 @@ void FHE_Params::set_matrix_dim(int matrix_dim)
   if (FFTData[0].get_prime() != 0)
     throw runtime_error("cannot change matrix dimension after parameter generation");
   this->matrix_dim = matrix_dim;
+}
+
+void FHE_Params::set_matrix_dim_from_options()
+{
+  set_matrix_dim(
+      HemiOptions::singleton.plain_matmul ?
+          1 : OnlineOptions::singleton.batch_size);
 }
 
 bigint FHE_Params::Q() const
@@ -47,26 +61,22 @@ bigint FHE_Params::Q() const
 
 void FHE_Params::pack(octetStream& o) const
 {
-  o.store(FFTData.size());
-  for(auto& fd: FFTData)
-    fd.pack(o);
+  o.store(FFTData);
   Chi.pack(o);
   Bval.pack(o);
   o.store(sec_p);
   o.store(matrix_dim);
+  fd.pack(o);
 }
 
 void FHE_Params::unpack(octetStream& o)
 {
-  size_t size;
-  o.get(size);
-  FFTData.resize(size);
-  for (auto& fd : FFTData)
-    fd.unpack(o);
+  o.get(FFTData);
   Chi.unpack(o);
   Bval.unpack(o);
   o.get(sec_p);
   o.get(matrix_dim);
+  fd.unpack(o);
 }
 
 bool FHE_Params::operator!=(const FHE_Params& other) const
@@ -78,4 +88,32 @@ bool FHE_Params::operator!=(const FHE_Params& other) const
     }
   else
     return false;
+}
+
+void FHE_Params::basic_generation_mod_prime(int plaintext_length)
+{
+  if (n_mults() == 0)
+    generate_semi_setup(plaintext_length, 0, *this, fd, false);
+  else
+    {
+      Parameters parameters(1, plaintext_length, 0);
+      parameters.generate_setup(*this, fd);
+    }
+}
+
+template<>
+const FFT_Data& FHE_Params::get_plaintext_field_data() const
+{
+  return fd;
+}
+
+template<>
+const P2Data& FHE_Params::get_plaintext_field_data() const
+{
+  throw not_implemented();
+}
+
+bigint FHE_Params::get_plaintext_modulus() const
+{
+  return fd.get_prime();
 }

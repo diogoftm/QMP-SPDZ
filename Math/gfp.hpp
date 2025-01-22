@@ -13,8 +13,6 @@
 template<int X, int L>
 const true_type gfp_<X, L>::invertible;
 template<int X, int L>
-const true_type gfp_<X, L>::prime_field;
-template<int X, int L>
 const int gfp_<X, L>::MAX_N_BITS;
 
 template<int X, int L>
@@ -50,6 +48,7 @@ void gfp_<X, L>::init_field(const bigint& p, bool mont)
       else
         cerr << name << " larger than necessary for modulus " << p << endl;
     }
+  two = bigint::tmp = 2;
 }
 
 template <int X, int L>
@@ -146,8 +145,7 @@ gfp_<X, L> gfp_<X, L>::sqrRoot()
 {
     // Temp move to bigint so as to call sqrRootMod
     bigint ti;
-    to_bigint(ti, *this);
-    ti = sqrRootMod(ti, ZpD.pr);
+    ti = sqrRootMod(*this);
     if (!isOdd(ti))
         ti = ZpD.pr - ti;
     gfp_<X, L> temp;
@@ -172,9 +170,9 @@ void gfp_<X, L>::reqbl(int n)
 }
 
 template<int X, int L>
-bool gfp_<X, L>::allows(Dtype)
+bool gfp_<X, L>::allows(Dtype type)
 {
-    return true;
+    return type <= DATA_INVERSE;
 }
 
 template<int X, int L>

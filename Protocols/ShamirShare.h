@@ -8,7 +8,8 @@
 
 #include "Protocols/Shamir.h"
 #include "Protocols/ShamirInput.h"
-#include "Machines/ShamirMachine.h"
+#include "GC/NoShare.h"
+#include "ShamirOptions.h"
 #include "ShareInterface.h"
 
 template<class T> class ReplicatedPrep;
@@ -29,10 +30,8 @@ class ShamirShare : public T, public ShareInterface
 public:
     typedef T clear;
     typedef T open_type;
-    typedef T mac_key_type;
     typedef void sacri_type;
-    typedef GC::NoShare mac_type;
-    typedef GC::NoShare mac_share_type;
+    typedef This share_type;
 
     typedef Shamir<ShamirShare> Protocol;
     typedef IndirectShamirMC<ShamirShare> MAC_Check;
@@ -50,8 +49,10 @@ public:
 
     const static bool needs_ot = false;
     const static bool dishonest_majority = false;
-    const static bool variable_players = true;
+    static true_type variable_players;
     const static bool expensive = false;
+    const static bool malicious = false;
+    const static int bit_generation_threshold = 3;
 
     static string type_short()
     {
@@ -66,6 +67,11 @@ public:
         return "Shamir " + T::type_string();
     }
 
+    static string alt()
+    {
+        return "ATLAS";
+    }
+
     static int threshold(int)
     {
         return ShamirMachine::s().threshold;
@@ -76,9 +82,9 @@ public:
         return Protocol::get_rec_factor(i, n);
     }
 
-    static ShamirShare constant(T value, int my_num, const T& alphai = {})
+    static ShamirShare constant(T value, int, const mac_key_type& = {})
     {
-        return ShamirShare(value, my_num, alphai);
+        return ShamirShare(value);
     }
 
     ShamirShare()
@@ -89,40 +95,10 @@ public:
     {
         T::operator=(other);
     }
-    template<class U>
-    ShamirShare(const U& other, int my_num, T alphai = {}) : ShamirShare(other)
-    {
-        (void) my_num, (void) alphai;
-    }
 
-    // Share<T> compatibility
-    void assign(clear other, int my_num, const T& alphai)
-    {
-        (void)alphai, (void)my_num;
-        *this = other;
-    }
     void assign(const char* buffer)
     {
         T::assign(buffer);
-    }
-
-    void add(const ShamirShare& S, const clear aa, int my_num,
-            const T& alphai)
-    {
-        (void) my_num, (void) alphai;
-        *this = S + aa;
-    }
-    void sub(const ShamirShare& S, const clear& aa, int my_num,
-            const T& alphai)
-    {
-        (void) my_num, (void) alphai;
-        *this = S - aa;
-    }
-    void sub(const clear& aa, const ShamirShare& S, int my_num,
-            const T& alphai)
-    {
-        (void) my_num, (void) alphai;
-        *this = aa - S;
     }
 
     ShamirShare operator<<(int i)
@@ -159,5 +135,8 @@ public:
         T::unpack(os);
     }
 };
+
+template<class T>
+true_type ShamirShare<T>::variable_players;
 
 #endif /* PROTOCOLS_SHAMIRSHARE_H_ */

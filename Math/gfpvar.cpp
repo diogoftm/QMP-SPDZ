@@ -81,6 +81,12 @@ void gfpvar_<X, L>::init_default(int lgp, bool montgomery)
 }
 
 template<int X, int L>
+inline void gfpvar_<X, L>::reset()
+{
+    ZpD = {};
+}
+
+template<int X, int L>
 const Zp_Data& gfpvar_<X, L>::get_ZpD()
 {
     return ZpD;
@@ -290,12 +296,6 @@ bool gfpvar_<X, L>::operator !=(const gfpvar_<X, L>& other) const
 }
 
 template<int X, int L>
-void gfpvar_<X, L>::add(octetStream& other)
-{
-    *this += other.get<gfpvar_<X, L>>();
-}
-
-template<int X, int L>
 void gfpvar_<X, L>::negate()
 {
     *this = gfpvar_<X, L>() - *this;
@@ -312,8 +312,8 @@ gfpvar_<X, L> gfpvar_<X, L>::invert() const
 template<int X, int L>
 gfpvar_<X, L> gfpvar_<X, L>::sqrRoot() const
 {
-    bigint ti = *this;
-    ti = sqrRootMod(ti, ZpD.pr);
+    bigint ti;
+    ti = sqrRootMod(*this);
     if (!isOdd(ti))
         ti = ZpD.pr - ti;
     return ti;

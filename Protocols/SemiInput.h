@@ -6,20 +6,31 @@
 #ifndef PROTOCOLS_SEMIINPUT_H_
 #define PROTOCOLS_SEMIINPUT_H_
 
-#include "ShamirInput.h"
+#include "ReplicatedInput.h"
+#include "Hemi.h"
 
 template<class T> class SemiMC;
+
+template<class T>
+class PairwiseKeyInput : public PrepLessInput<T>
+{
+protected:
+    vector<SeededPRNG> send_prngs;
+    vector<PRNG> recv_prngs;
+
+public:
+    PairwiseKeyInput(SubProcessor<T>* proc, PlayerBase& P);
+
+    void maybe_init(PlayerBase& P);
+};
 
 /**
  * Additive secret sharing input protocol
  */
 template<class T>
-class SemiInput : public InputBase<T>
+class SemiInput : public PairwiseKeyInput<T>
 {
-    vector<SeededPRNG> send_prngs;
-    vector<PRNG> recv_prngs;
-    Player& P;
-    vector<PointerVector<T>> shares;
+    PlayerBase& P;
 
 public:
     SemiInput(SubProcessor<T>& proc, SemiMC<T>&) :
@@ -27,7 +38,7 @@ public:
     {
     }
 
-    SemiInput(SubProcessor<T>* proc, Player& P);
+    SemiInput(SubProcessor<T>* proc, PlayerBase& P);
 
     SemiInput(typename T::MAC_Check& MC, Preprocessing<T>& prep, Player& P) :
             SemiInput(0, P)

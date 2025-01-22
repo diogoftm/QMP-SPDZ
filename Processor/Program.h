@@ -21,10 +21,14 @@ class Program
   unsigned max_reg[MAX_REG_TYPE];
 
   // Memory size used directly
-  unsigned max_mem[MAX_REG_TYPE];
+  size_t max_mem[MAX_REG_TYPE];
 
   // True if program contains variable-sized loop
   bool unknown_usage;
+
+  string hash;
+
+  string name;
 
   void compute_constants();
 
@@ -36,8 +40,11 @@ class Program
       unknown_usage(false), writes_persistence(false)
     { compute_constants(); }
 
+  size_t size() const { return p.size(); }
+
   // Read in a program
   void parse(string filename);
+  void parse_with_error(string filename);
   void parse(istream& s);
 
   DataPositions get_offline_data_used() const { return offline_data_used; }
@@ -48,8 +55,11 @@ class Program
   unsigned num_reg(RegType reg_type) const
     { return max_reg[reg_type]; }
 
-  unsigned direct_mem(RegType reg_type) const
+  size_t direct_mem(RegType reg_type) const
     { return max_mem[reg_type]; }
+
+  const string& get_hash() const
+    { return hash; }
 
   friend ostream& operator<<(ostream& s,const Program& P);
 
@@ -58,6 +68,8 @@ class Program
   template<class sint, class sgf2n>
   void execute(Processor<sint, sgf2n>& Proc) const;
 
+  template<class sint, class sgf2n>
+  void execute_with_errors(Processor<sint, sgf2n>& Proc) const;
 };
 
 #endif

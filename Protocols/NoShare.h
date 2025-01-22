@@ -21,12 +21,11 @@ class NoShare : public ShareInterface
     typedef NoShare This;
 
 public:
+    typedef This share_type;
+
     // type for clear values in relevant domain
     typedef T clear;
     typedef clear open_type;
-
-    // needs to be defined even if protocol doesn't use MACs
-    typedef clear mac_key_type;
 
     // disable binary computation
     typedef GC::NoShare bit_type;
@@ -47,6 +46,10 @@ public:
     // default private output facility (using input tuples)
     typedef ::PrivateOutput<NoShare> PrivateOutput;
 
+    // indicate whether protocol allows dishonest majority and variable players
+    static const bool dishonest_majority = true;
+    static const bool variable_players = true;
+
     // description used for debugging output
     static string type_string()
     {
@@ -63,8 +66,9 @@ public:
     // must match assign/pack/unpack and machine-readable input/output
     static int size()
     {
-        throw runtime_error("no size");
-        return -1;
+        // works only if purely on the stack
+        // skip one byte for ShareInterface
+        return sizeof(This) - 1;
     }
 
     // maximum number of corrupted parties
@@ -137,16 +141,20 @@ public:
 
     // assignment from byte string
     // must match unpack
-    void assign(const char*)
+    void assign(const char* buffer)
     {
-        throw runtime_error("no assignment");
+        // works only if purely on the stack
+        // skip one byte for ShareInterface
+        memcpy((char*) this + 1, buffer, size());
     }
 
     // serialization
     // must use the number of bytes given by size()
-    void pack(octetStream&, bool = false) const
+    void pack(octetStream& os, bool = false) const
     {
-        throw runtime_error("no packing");
+        // works only if purely on the stack
+        // skip one byte for ShareInterface
+        memcpy(os.append(size()), (char*) this + 1, size());
     }
 
     // serialization
@@ -164,9 +172,10 @@ public:
             throw runtime_error("no human-readable input");
         else
         {
-            char buf[size()];
+            char* buf = new char[size()];
             is.read(buf, size());
             assign(buf);
+            delete[] buf;
         }
     }
 
@@ -184,5 +193,12 @@ public:
         }
     }
 };
+
+template<class T>
+inline ostream& operator<<(ostream& o, NoShare<T>)
+{
+    throw runtime_error("no output");
+    return o;
+}
 
 #endif /* PROTOCOLS_NOSHARE_H_ */

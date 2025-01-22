@@ -3,7 +3,6 @@
  *
  */
 
-#include "ShamirMachine.h"
 #include "Protocols/SpdzWiseShare.h"
 #include "Protocols/MaliciousShamirShare.h"
 #include "Protocols/SpdzWiseMC.h"
@@ -12,13 +11,14 @@
 #include "Math/gf2n.h"
 #include "GC/CcdSecret.h"
 #include "GC/MaliciousCcdSecret.h"
+#include "GC/SemiHonestRepPrep.h"
 
 #include "Protocols/Share.hpp"
 #include "Protocols/SpdzWise.hpp"
 #include "Protocols/SpdzWisePrep.hpp"
 #include "Protocols/SpdzWiseInput.hpp"
 #include "Protocols/SpdzWiseShare.hpp"
-#include "Machines/ShamirMachine.hpp"
+#include "Machines/Shamir.hpp"
 #include "Machines/MalRep.hpp"
 
 template<class T>

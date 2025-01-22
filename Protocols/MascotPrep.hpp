@@ -62,8 +62,11 @@ void MascotTriplePrep<T>::buffer_triples()
     auto& params = this->params;
     auto& triple_generator = this->triple_generator;
     params.generateBits = false;
+    triple_generator->set_batch_size(
+            BaseMachine::batch_size<T>(DATA_TRIPLE, this->buffer_size));
     triple_generator->generate();
     triple_generator->unlock();
+    triple_generator->set_batch_size(OnlineOptions::singleton.batch_size);
     assert(triple_generator->uncheckedTriples.size() != 0);
     for (auto& triple : triple_generator->uncheckedTriples)
         this->triples.push_back(
@@ -106,20 +109,6 @@ void MascotInputPrep<T>::buffer_inputs(int player)
         this->inputs.resize(player + 1);
     for (auto& input : triple_generator->inputs)
         this->inputs[player].push_back(input);
-}
-
-template<class T>
-T Preprocessing<T>::get_random_from_inputs(int nplayers)
-{
-    T res;
-    for (int j = 0; j < nplayers; j++)
-    {
-        T tmp;
-        typename T::open_type _;
-        this->get_input_no_count(tmp, _, j);
-        res += tmp;
-    }
-    return res;
 }
 
 #endif

@@ -29,10 +29,56 @@ void Program::compute_constants()
 
 void Program::parse(string filename)
 {
+  if (OnlineOptions::singleton.has_option("throw_exceptions"))
+      parse_with_error(filename);
+  else
+    {
+      try
+      {
+          parse_with_error(filename);
+      }
+      catch(exception& e)
+      {
+          cerr << "Error in bytecode: " << e.what() << endl;
+          exit(1);
+      }
+    }
+}
+
+void Program::parse_with_error(string filename)
+{
+  name = boost::filesystem::path(filename).stem().string();
   ifstream pinp(filename);
   if (pinp.fail())
     throw file_error(filename);
-  parse(pinp);
+
+  try
+  {
+    parse(pinp);
+  }
+  catch (bytecode_error& e)
+  {
+    stringstream os;
+    os << "Cannot parse " << filename << " (" << e.what() << ")" << endl;
+    os << "Does the compiler version match the virtual machine? "
+        << "If in doubt, recompile the VM";
+    if (not OnlineOptions::singleton.executable.empty())
+      os << " using 'make " << OnlineOptions::singleton.executable << "'";
+    os << ".";
+    throw bytecode_error(os.str());
+  }
+
+  // compute hash
+  pinp.clear();
+  pinp.seekg(0);
+  Hash hasher;
+  while (pinp.peek(), !pinp.eof())
+    {
+      char buf[1024];
+      size_t n = pinp.readsome(buf, 1024);
+      hasher.update(buf, n);
+    }
+  hash = hasher.final().str();
 }
 
 void Program::parse(istream& s)
@@ -41,9 +87,26 @@ void Program::parse(istream& s)
   Instruction instr;
   s.peek();
   while (!s.eof())
-    { instr.parse(s, p.size());
-      if (s.fail())
-        throw runtime_error("error while parsing " + to_string(instr.opcode));
+    {
+      bool fail = false;
+      try
+      {
+        instr.parse(s, p.size());
+      }
+      catch (bad_alloc&)
+      {
+        fail = true;
+      }
+      fail |= s.fail();
+
+      if (fail)
+        {
+          stringstream os;
+          os << "error while parsing " << hex << showbase << instr.opcode
+              << " at " << dec << p.size();
+          throw bytecode_error(os.str());
+        }
+
       p.push_back(instr);
       //cerr << "\t" << instr << endl;
       s.peek();

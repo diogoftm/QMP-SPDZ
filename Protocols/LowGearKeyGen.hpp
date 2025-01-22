@@ -10,6 +10,7 @@
 
 #include "Machines/SPDZ.hpp"
 #include "ShareVector.hpp"
+#include "MascotPrep.hpp"
 
 template<int L>
 LowGearKeyGen<L>::LowGearKeyGen(Player& P, PairwiseMachine& machine,
@@ -23,7 +24,7 @@ KeyGenProtocol<X, L>::KeyGenProtocol(Player& P, const FHE_Params& params,
         int level) :
         P(P), params(params), fftd(params.FFTD().at(level)), usage(P)
 {
-    open_type::init_field(params.FFTD().at(level).get_prD().pr);
+    open_type::init_field(params.FFTD().at(level).get_prD().pr, false);
     typename share_type::mac_key_type alphai;
 
     auto& batch_size = OnlineOptions::singleton.batch_size;
@@ -44,6 +45,8 @@ KeyGenProtocol<X, L>::KeyGenProtocol(Player& P, const FHE_Params& params,
 
     MC = new MAC_Check_<share_type>(alphai);
     proc = new SubProcessor<share_type>(*MC, *prep, P);
+
+    MC->setup(P);
 }
 
 template<int X, int L>
@@ -51,13 +54,17 @@ KeyGenProtocol<X, L>::~KeyGenProtocol()
 {
     MC->Check(P);
 
-    usage.print_cost();
+    if (OnlineOptions::singleton.verbose)
+        usage.print_cost();
 
     delete proc;
     delete prep;
     delete MC;
 
+    MC->teardown();
+
     OnlineOptions::singleton.batch_size = backup_batch_size;
+    open_type::reset();
 }
 
 template<int X, int L>

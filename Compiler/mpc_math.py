@@ -1,13 +1,17 @@
 """
 Module for math operations.
 
-Implements trigonometric and logarithmic functions.
+Most of the functionality is due to `Aly and Smart
+<https://eprint.iacr.org/2019/354>`_ with some optimizations by
+`Keller and Sun <https://eprint.iacr.org/2022/933>`_.
 
 This has to imported explicitly.
 """
 
 
 import math
+import operator
+from functools import reduce
 from Compiler import floatingpoint
 from Compiler import types
 from Compiler import comparison
@@ -96,24 +100,11 @@ pi_over_2 = math.radians(90)
 # @return truncated sint value of x
 def trunc(x):
     if isinstance(x, types._fix):
-        return x.v.right_shift(x.f, x.k, security=x.kappa, signed=True)
+        return x.v.right_shift(x.f, x.k, signed=True)
     elif type(x) is types.sfloat:
         v, p, z, s = floatingpoint.FLRound(x, 0)
         #return types.sfloat(v, p, z, s, x.err) 
         return types.sfloat(v, p, z, s) 
-    return x
-
-
-##
-# loads integer to fractional type (sint)
-# @param x: coefficient to be truncated.
-#
-# @return returns sfix, sfloat loaded value
-def load_sint(x, l_type):
-    if l_type is types.sfix:
-        return types.sfix.from_sint(x)
-    elif l_type is types.sfloat:
-        return x
     return x
 
 
@@ -131,7 +122,7 @@ def p_eval(p_c, x):
     if isinstance(x, types._fix):
         # ignore coefficients smaller than precision
         for c in reversed(p_c):
-            if c < 2 ** -(x.f + 1):
+            if abs(c) < 2 ** -(x.f + 1):
                 degree -= 1
             else:
                 break
@@ -295,7 +286,6 @@ def exp2_fx(a, zero_output=False, as19=False):
         intbitint = types.intbitint
         n_shift = int(types.program.options.ring) - a.k
         if types.program.use_split():
-            assert not zero_output
             from Compiler.GC.types import sbitvec
             if types.program.use_split() == 3:
                 x = a.v.split_to_two_summands(a.k)
@@ -327,6 +317,7 @@ def exp2_fx(a, zero_output=False, as19=False):
                 s = sint.conv(bits[-1])
                 lower = sint.bit_compose(sint.conv(b) for b in bits[:a.f])
             higher_bits = bits[a.f:n_bits]
+            bits_to_check = bits[n_bits:-1]
         else:
             if types.program.use_edabit():
                 l = sint.get_edabit(a.f, True)
@@ -338,7 +329,7 @@ def exp2_fx(a, zero_output=False, as19=False):
                 r_bits = [sint.get_random_bit() for i in range(a.k)]
                 r = sint.bit_compose(r_bits)
                 lower_r = sint.bit_compose(r_bits[:a.f])
-            shifted = ((a.v - r) << n_shift).reveal()
+            shifted = ((a.v - r) << n_shift).reveal(False)
             masked_bits = (shifted >> n_shift).bit_decompose(a.k)
             lower_overflow = comparison.CarryOutRaw(masked_bits[a.f-1::-1],
                                 r_bits[a.f-1::-1])
@@ -398,10 +389,40 @@ def exp2_fx(a, zero_output=False, as19=False):
         return s.if_else(1 / g, g)
 
 
+def mux_exp(x, y, block_size=8):
+    assert util.is_constant_float(x)
+    from Compiler.GC.types import sbitvec, sbits
+    bits = sbitvec.from_vec(y.v.bit_decompose(y.k, maybe_mixed=True)).v
+    sign = bits[-1]
+    m = math.log(2 ** (y.k - y.f - 1), x)
+    del bits[int(math.ceil(math.log(m, 2))) + y.f:]
+    parts = []
+    for i in range(0, len(bits), block_size):
+        one_hot = sbitvec.from_vec(bits[i:i + block_size]).demux().v
+        exp = []
+        try:
+            for j in range(len(one_hot)):
+                exp.append(types.cfix.int_rep(x ** (j * 2 ** (i - y.f)), y.f))
+        except OverflowError:
+            pass
+        exp = list(filter(lambda x: x < 2 ** (y.k - 1), exp))
+        bin_part = [0] * max(x.bit_length() for x in exp)
+        for j in range(len(bin_part)):
+            for k, (a, b) in enumerate(zip(one_hot, exp)):
+                bin_part[j] ^= a if util.bit_decompose(b, len(bin_part))[j] \
+                    else 0
+            if util.is_zero(bin_part[j]):
+                bin_part[j] = sbits.get_type(y.size)(0)
+            if i == 0:
+                bin_part[j] = sign.if_else(0, bin_part[j])
+        parts.append(y._new(y.int_type(sbitvec.from_vec(bin_part))))
+    return util.tree_reduce(operator.mul, parts)
+
+
 @types.vectorize
 @instructions_base.sfix_cisc
 def log2_fx(x, use_division=True):
-    """
+    r"""
     Returns the result of :math:`\log_2(x)` for any unbounded
     number. This is achieved by changing :py:obj:`x` into
     :math:`f \cdot 2^n` where f is bounded by :math:`[0.5, 1]`.  Then the
@@ -416,10 +437,12 @@ def log2_fx(x, use_division=True):
     if isinstance(x, types._fix):
         # transforms sfix to f*2^n, where f is [o.5,1] bounded
         # obtain number bounded by [0,5 and 1] by transforming input to sfloat
-        v, p, z, s = floatingpoint.Int2FL(x.v, x.k, x.f, x.kappa)
+        v, p, z, s = floatingpoint.Int2FL(x.v, x.k, x.f)
         p -= x.f
         vlen = x.f
         v = x._new(v, k=x.k, f=x.f)
+    elif isinstance(x, (types._register, types.cfix)):
+        return log2_fx(types.sfix(x), use_division)
     else:
         d = types.sfloat(x)
         v, p, vlen = d.v, d.p, d.vlen
@@ -439,8 +462,8 @@ def log2_fx(x, use_division=True):
     return a  # *(1-(f.z))*(1-f.s)*(1-f.error)
 
 
-def pow_fx(x, y):
-    """
+def pow_fx(x, y, zero_output=False):
+    r"""
     Returns the value of the expression :math:`x^y` where both inputs
     are secret shared. It uses  :py:func:`log2_fx` together with
     :py:func:`exp2_fx` to calculate the expression :math:`2^{y \log_2(x)}`.
@@ -460,11 +483,11 @@ def pow_fx(x, y):
     # obtains y * log2(x)
     exp = y * log2_x
     # returns 2^(y*log2(x))
-    return exp2_fx(exp)
+    return exp2_fx(exp, zero_output)
 
 
 def log_fx(x, b):
-    """
+    r"""
     Returns the value of the expression :math:`\log_b(x)` where
     :py:obj:`x` is secret shared. It uses :py:func:`log2_fx` to
     calculate the expression :math:`\log_b(2) \cdot \log_2(x)`.
@@ -501,7 +524,8 @@ def abs_fx(x):
 #
 # @return floored sint value of x
 def floor_fx(x):
-    return load_sint(floatingpoint.Trunc(x.v, x.k - x.f, x.f, x.kappa), type(x))
+    return type(x)(x.v.right_shift(x.f, bit_length=x.k, signed=True),
+                   k=x.k, f=x.f)
 
 
 ### sqrt methods
@@ -590,6 +614,15 @@ def norm_simplified_SQ(b, k):
 #
 # @return g: approximated sqrt
 def sqrt_simplified_fx(x):
+    # adapt parameters to fit the algorithm
+    f = x.f
+    k = x.k
+    my_f = max(f, k - f + 1)
+    shift = my_f - f
+    my_k = k + shift
+    assert my_k < 2 * my_f
+    x = type(x)._new(x.v << shift, f=my_f, k=my_k)
+
     # fix theta (number of iterations)
     theta = max(int(math.ceil(math.log(x.k))), 6)
 
@@ -627,7 +660,7 @@ def sqrt_simplified_fx(x):
     h = h * r
     H = 4 * (h * h)
 
-    if not x.round_nearest or (2 * f < k - 1):
+    if not x.round_nearest or (2 * x.f < x.k - 1):
         H = (h < 2 ** (-x.f / 2) / 2).if_else(0, H)
 
     H = H * x
@@ -636,7 +669,7 @@ def sqrt_simplified_fx(x):
     g = H * x
     g = g
 
-    return g
+    return type(x)._new((g * 2 ** -shift).v, f=f, k=k)
 
 
 ##
@@ -699,13 +732,13 @@ def lin_app_SQ(b, k, f):
     c, v, m, W = norm_SQ(types.sint(b), k)
 
     # c is now escalated
-    w = alpha * load_sint(c,types.sfix) + beta  # equation before b and reduction by order of k
+    w = alpha * c + beta  # equation before b and reduction by order of k
 
 
     # m even or odd determination
     m_bit = types.sint()
-    comparison.Mod2(m_bit, m, int(math.ceil(math.log(k, 2))), w.kappa, False)
-    m = load_sint(m_bit, types.sfix)
+    comparison.Mod2(m_bit, m, int(math.ceil(math.log(k, 2))), signed=False)
+    m = m_bit
 
     # w times v  this way both terms have 2^3k and can be symplified
     w = w * v
@@ -730,7 +763,7 @@ def lin_app_SQ(b, k, f):
 def sqrt_fx(x_l, k, f):
     factor = 1.0 / (2.0 ** f)
 
-    x = load_sint(x_l, types.sfix) * factor
+    x = x_l * factor
 
     theta = int(math.ceil(math.log(k/5.4)))
 
@@ -772,9 +805,7 @@ def sqrt_fx(x_l, k, f):
 @instructions_base.sfix_cisc
 def sqrt(x, k=None, f=None):
     """
-    Returns the square root (sfix) of any given fractional
-    value as long as it can be rounded to a integral value
-    with :py:obj:`f` bits of decimal precision.
+    Square root.
 
     :param x: fractional input (sfix).
 
@@ -828,7 +859,7 @@ def atan(x):
 
 
 def asin(x):
-    """
+    r"""
     Returns the arcsine (sfix) of any given fractional value.
 
     :param x: fractional input (sfix). valid interval is :math:`-1 \le x \le 1`
@@ -844,7 +875,7 @@ def asin(x):
 
 
 def acos(x):
-    """
+    r"""
     Returns the arccosine (sfix) of any given fractional value.
 
     :param x: fractional input (sfix). :math:`-1 \le x \le 1`
@@ -856,7 +887,7 @@ def acos(x):
 
 
 def tanh(x):
-    """
+    r"""
     Hyperbolic tangent. For efficiency, accuracy is diminished
     around :math:`\pm \log(k - f - 2) / 2` where :math:`k` and
     :math:`f` denote the fixed-point parameters.
@@ -870,25 +901,29 @@ def tanh(x):
 
 # next functions due to https://dl.acm.org/doi/10.1145/3411501.3419427
 
-def Sep(x):
+def Sep(x, sfix=types.sfix):
     b = floatingpoint.PreOR(list(reversed(x.v.bit_decompose(x.k, maybe_mixed=True))))
-    t = x.v * (1 + x.v.bit_compose(b_i.bit_not() for b_i in b[-2 * x.f + 1:]))
-    u = types.sfix._new(t.right_shift(x.f, 2 * x.k, signed=False))
+    bb = b[:]
+    while len(bb) < 2 * x.f - 1:
+        bb.insert(0, type(b[0])(0))
+    t = x.v * (1 + x.v.bit_compose(b_i.bit_not()
+                                   for b_i in bb[-2 * x.f + 1:]))
+    u = sfix._new(t.right_shift(x.f, 2 * x.k, signed=False))
     b += [b[0].long_one()]
     return u, [b[i + 1] - b[i] for i in reversed(range(x.k))]
 
-def SqrtComp(z, old=False):
-    f = types.sfix.f
+def SqrtComp(z, old=False, sfix=types.sfix):
+    f = sfix.f
     k = len(z)
     if isinstance(z[0], types.sint):
-        return types.sfix._new(sum(z[i] * types.cfix(
-            2 ** (-(i - f + 1) / 2)).v for i in range(k)))
+        return sfix._new(sum(z[i] * types.cfix(
+            2 ** (-(i - f + 1) / 2), k=k, f=f).v for i in range(k)))
     k_prime = k // 2
     f_prime = f // 2
-    c1 = types.sfix(2 ** ((f + 1) / 2 + 1))
-    c0 = types.sfix(2 ** (f / 2 + 1))
+    c1 = sfix(2 ** ((f + 1) / 2 + 1))
+    c0 = sfix(2 ** (f / 2 + 1))
     a = [z[2 * i].bit_or(z[2 * i + 1]) for i in range(k_prime)]
-    tmp = types.sfix._new(types.sint.bit_compose(reversed(a[:2 * f_prime])))
+    tmp = sfix._new(types.sint.bit_compose(reversed(a[:2 * f_prime])))
     if old:
         b = sum(types.sint.conv(zi).if_else(i, 0) for i, zi in enumerate(z)) % 2
     else:
@@ -896,11 +931,15 @@ def SqrtComp(z, old=False):
     return types.sint.conv(b).if_else(c1, c0) * tmp
 
 @types.vectorize
+@instructions_base.sfix_cisc
 def InvertSqrt(x, old=False):
     """
     Reciprocal square root approximation by `Lu et al.
     <https://dl.acm.org/doi/10.1145/3411501.3419427>`_
     """
-    u, z = Sep(x)
+    class my_sfix(types.sfix):
+        f = x.f
+        k = x.k
+    u, z = Sep(x, sfix=my_sfix)
     c = 3.14736 + u * (4.63887 * u - 5.77789)
-    return c * SqrtComp(z, old=old)
+    return c * SqrtComp(z, old=old, sfix=my_sfix)

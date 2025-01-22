@@ -9,7 +9,6 @@
 using namespace std;
 
 #include "Math/gf2n.h"
-#include "Protocols/SPDZ.h"
 #include "Protocols/SemiShare.h"
 #include "ShareInterface.h"
 
@@ -26,6 +25,8 @@ template<class T> class MascotTriplePrep;
 
 union square128;
 
+class gf2n_mac_key;
+
 namespace GC
 {
 template<class T> class TinierSecret;
@@ -35,6 +36,8 @@ template<class T> class TinierSecret;
 template<class T, class V>
 class Share_ : public ShareInterface
 {
+   static V mac_key;
+
    T a;        // The share
    V mac;      // Shares of the mac
 
@@ -49,13 +52,14 @@ class Share_ : public ShareInterface
    typedef typename T::clear clear;
 
 #ifndef NO_MIXED_CIRCUITS
-   typedef GC::TinierSecret<gf2n_short> bit_type;
+   typedef GC::TinierSecret<gf2n_mac_key> bit_type;
 #endif
 
    const static bool needs_ot = T::needs_ot;
    const static bool dishonest_majority = T::dishonest_majority;
    const static bool variable_players = T::variable_players;
    const static bool has_mac = true;
+   static const bool malicious = true;
 
    static int size()
      { return T::size() + V::size(); }
@@ -70,10 +74,12 @@ class Share_ : public ShareInterface
    static void read_or_generate_mac_key(string directory, const Player& P,
            U& key);
 
-   static void specification(octetStream& os)
-     { T::specification(os); }
+   static void specification(octetStream& os);
 
-   static Share_ constant(const clear& aa, int my_num, const typename V::Scalar& alphai)
+   static mac_key_type get_mac_key();
+   static void set_mac_key(const mac_key_type& mac_key);
+
+   static Share_ constant(const open_type& aa, int my_num, const typename V::Scalar& alphai)
      { return Share_(aa, my_num, alphai); }
 
    template<class U, class W>
@@ -82,15 +88,13 @@ class Share_ : public ShareInterface
    void assign(const char* buffer)
      { a.assign(buffer); mac.assign(buffer + T::size()); }
    void assign_zero()
-     { a.assign_zero(); 
-       mac.assign_zero(); 
-     }
-   void assign(const clear& aa, int my_num, const typename V::Scalar& alphai);
+     { *this = {}; }
+   void assign(const open_type& aa, int my_num, const typename V::Scalar& alphai);
 
-   Share_()                   { assign_zero(); }
+   Share_()                   {}
    template<class U, class W>
    Share_(const Share_<U, W>& S) { assign(S); }
-   Share_(const clear& aa, int my_num, const typename V::Scalar& alphai)
+   Share_(const open_type& aa, int my_num, const typename V::Scalar& alphai)
      { assign(aa, my_num, alphai); }
    Share_(const T& share, const V& mac) : a(share), mac(mac) {}
 
@@ -128,6 +132,8 @@ class Share_ : public ShareInterface
 
    void force_to_bit() { a.force_to_bit(); }
 
+   void randomize(PRNG& G);
+
    // Input and output from a stream
    //  - Can do in human or machine only format (later should be faster)
    void output(ostream& s,bool human) const
@@ -149,6 +155,8 @@ class Share_ : public ShareInterface
 template<class T>
 class Share : public Share_<SemiShare<T>, SemiShare<T>>
 {
+    typedef Share This;
+
 public:
     typedef Share_<SemiShare<T>, SemiShare<T>> super;
 
@@ -156,6 +164,8 @@ public:
     typedef T mac_type;
 
     typedef Share<typename T::next> prep_type;
+    typedef Share prep_check_type;
+    typedef Share bit_prep_type;
     typedef Share input_check_type;
     typedef Share input_type;
     typedef MascotMultiplier<Share> Multiplier;
@@ -168,10 +178,12 @@ public:
     typedef Direct_MAC_Check<Share> Direct_MC;
     typedef ::Input<Share> Input;
     typedef ::PrivateOutput<Share> PrivateOutput;
+    typedef Beaver<This> BasicProtocol;
     typedef SPDZ<Share> Protocol;
     typedef MascotFieldPrep<Share> LivePrep;
     typedef MascotPrep<Share> RandomPrep;
     typedef MascotTriplePrep<Share> TriplePrep;
+    typedef DummyMatrixPrep<This> MatrixPrep;
 
     static const bool expensive = true;
 
@@ -235,7 +247,7 @@ inline void Share_<T, V>::mul(const Share_<T, V>& S,const clear& aa)
 }
 
 template<class T, class V>
-inline void Share_<T, V>::assign(const clear& aa, int my_num,
+inline void Share_<T, V>::assign(const open_type& aa, int my_num,
     const typename V::Scalar& alphai)
 {
   a = T::constant(aa, my_num);

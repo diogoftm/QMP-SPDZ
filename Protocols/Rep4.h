@@ -65,7 +65,11 @@ class Rep4 : public ProtocolBase<T>
     template<int = 0>
     T finalize_mul(int n_bits, false_type);
 
+    void must_check();
+
 public:
+    static const bool uses_triples = false;
+
     prngs_type rep_prngs;
     Player& P;
 
@@ -92,7 +96,7 @@ public:
     void trunc_pr(const vector<int>& regs, int size, SubProcessor<T>& proc);
 
     template<class U>
-    void split(vector<T>& dest, const vector<int>& regs, int n_bits,
+    void split(StackedVector<T>& dest, const vector<int>& regs, int n_bits,
             const U* source, int n_inputs);
 
     int get_n_relevant_players() { return 2; }

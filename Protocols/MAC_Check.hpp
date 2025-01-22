@@ -14,6 +14,7 @@
 #include <algorithm>
 
 #include "Protocols/MAC_Check_Base.hpp"
+#include "mac_key.hpp"
 
 template<class T>
 const char* TreeSum<T>::mc_timer_names[] = {
@@ -30,6 +31,31 @@ const char* TreeSum<T>::mc_timer_names[] = {
 };
 
 template<class U>
+void Tree_MAC_Check<U>::setup(Player& P)
+{
+  assert(coordinator == 0);
+  coordinator = new Coordinator(P.N, U::type_string() + to_string(U::clear::length()));
+  U::prep_type::MAC_Check::coordinator = coordinator;
+  U::prep_check_type::MAC_Check::coordinator = coordinator;
+  U::bit_prep_type::MAC_Check::coordinator = coordinator;
+  U::bit_prep_type::prep_check_type::MAC_Check::coordinator = coordinator;
+  U::input_check_type::MAC_Check::coordinator = coordinator;
+}
+
+template<class U>
+void Tree_MAC_Check<U>::teardown()
+{
+  if (coordinator)
+    delete coordinator;
+  coordinator = 0;
+  U::prep_type::MAC_Check::coordinator = 0;
+  U::prep_check_type::MAC_Check::coordinator = 0;
+  U::bit_prep_type::MAC_Check::coordinator = 0;
+  U::bit_prep_type::prep_check_type::MAC_Check::coordinator = 0;
+  U::input_check_type::MAC_Check::coordinator = 0;
+}
+
+template<class U>
 MAC_Check_<U>::MAC_Check_(const typename U::mac_key_type::Scalar& ai, int opening_sum,
     int max_broadcast, int send_player) :
     Tree_MAC_Check<U>(ai, opening_sum, max_broadcast, send_player)
@@ -43,8 +69,6 @@ Tree_MAC_Check<U>::Tree_MAC_Check(const typename U::mac_key_type::Scalar& ai, in
 {
   popen_cnt=0;
   this->alphai=ai;
-  vals.reserve(2 * POPEN_MAX);
-  macs.reserve(2 * POPEN_MAX);
 }
 
 template<class T>
@@ -63,6 +87,7 @@ template<class U>
 void Tree_MAC_Check<U>::init_open(const Player&, int n)
 {
   macs.reserve(macs.size() + n);
+  vals.reserve(vals.size() + n);
   this->secrets.clear();
   this->values.clear();
   this->secrets.reserve(n);
@@ -70,8 +95,9 @@ void Tree_MAC_Check<U>::init_open(const Player&, int n)
 }
 
 template<class U>
-void Tree_MAC_Check<U>::prepare_open(const U& secret)
+void Tree_MAC_Check<U>::prepare_open(const U& secret, int)
 {
+  assert(U::mac_type::invertible);
   this->values.push_back(secret.get_share());
   macs.push_back(secret.get_mac());
 }
@@ -84,7 +110,11 @@ void Tree_MAC_Check<U>::exchange(const Player& P)
   this->values_opened += this->values.size();
 
   popen_cnt += this->values.size();
-  CheckIfNeeded(P);
+
+  if (OnlineOptions::singleton.has_option("always_check"))
+    Check(P);
+  else
+    CheckIfNeeded(P);
 }
 
 
@@ -118,6 +148,7 @@ template<class U>
 void MAC_Check_<U>::Check(const Player& P)
 {
   assert(U::mac_type::invertible);
+  check_field_size<typename U::mac_type>();
 
   if (this->WaitingForCheck() == 0)
     return;
@@ -128,6 +159,7 @@ void MAC_Check_<U>::Check(const Player& P)
   auto& macs = this->macs;
   auto& popen_cnt = this->popen_cnt;
   assert(int(macs.size()) <= popen_cnt);
+  assert(this->coordinator);
 
   if (popen_cnt < 10)
     {
@@ -140,14 +172,14 @@ void MAC_Check_<U>::Check(const Player& P)
           deltas.back().pack(bundle.mine);
         }
       this->timers[COMMIT].start();
-      Commit_And_Open_(bundle, P);
+      Commit_And_Open_(bundle, P, *this->coordinator);
       this->timers[COMMIT].stop();
       for (auto& delta : deltas)
         {
           for (auto& os : bundle)
             if (&os != &bundle.mine)
               delta += os.get<typename U::mac_type>();
-          if (not delta.is_zero())
+          if (delta != 0)
             throw mac_fail();
         }
     }
@@ -165,8 +197,6 @@ void MAC_Check_<U>::Check(const Player& P)
       typename U::mac_type a,gami,temp;
       typename U::mac_type::Scalar h;
       vector<typename U::mac_type> tau(P.num_players());
-      a.assign_zero();
-      gami.assign_zero();
       for (int i=0; i<popen_cnt; i++)
         {
           h.almost_randomize(G);
@@ -182,16 +212,16 @@ void MAC_Check_<U>::Check(const Player& P)
 
       //cerr << "\tCommit and Open" << endl;
       this->timers[COMMIT].start();
-      Commit_And_Open(tau,P);
+      Commit_And_Open(tau, P, *this->coordinator);
       this->timers[COMMIT].stop();
 
       //cerr << "\tFinal Check" << endl;
 
       typename U::mac_type t;
-      t.assign_zero();
       for (int i=0; i<P.num_players(); i++)
         { t += tau[i]; }
-      if (!t.is_zero()) { throw mac_fail(); }
+      if (t != 0)
+        throw mac_fail();
     }
 
   vals.erase(vals.begin(), vals.begin() + popen_cnt);
@@ -214,17 +244,15 @@ MAC_Check_Z2k<T, U, V, W>::MAC_Check_Z2k(const T& ai, Names& Nms,
 }
 
 template<class T, class U, class V, class W>
-void MAC_Check_Z2k<T, U, V, W>::AddToCheck(const W& share, const T& value, const Player& P)
+void MAC_Check_Z2k<T, U, V, W>::prepare_open(const W& secret, int)
 {
-  shares.push_back(share.get_share());
-  Tree_MAC_Check<W>::AddToCheck(share, value, P);
+  prepare_open_no_mask(secret + (get_random_element() << W::clear::N_BITS));
 }
 
 template<class T, class U, class V, class W>
-void MAC_Check_Z2k<T, U, V, W>::prepare_open(const W& secret)
+void MAC_Check_Z2k<T, U, V, W>::prepare_open_no_mask(const W& secret)
 {
-  shares.push_back(secret.get_share());
-  this->values.push_back(V(secret.get_share()));
+  this->values.push_back(secret.get_share());
   this->macs.push_back(secret.get_mac());
 }
 
@@ -239,7 +267,7 @@ W MAC_Check_Z2k<T, U, V, W>::get_random_element() {
   else
     {
       if (prep)
-        return prep->get_random();
+        return prep->get_random_for_open();
       else
       {
         insecure("random dummy");
@@ -269,7 +297,6 @@ void MAC_Check_Z2k<T, U, V, W>::Check(const Player& P)
   cout << "Checking " << shares[0] << " " << this->vals[0] << " " << this->macs[0] << endl;
 #endif
 
-  int k = V::N_BITS;
   octet seed[SEED_SIZE];
   Create_Random_Seed(seed,P,SEED_SIZE);
   PRNG G;
@@ -290,33 +317,12 @@ void MAC_Check_Z2k<T, U, V, W>::Check(const Player& P)
     chi.push_back(temp_chi);
   }
 
-  W r = get_random_element();
-  T lj = r.get_mac();
-  U pj;
-  pj.assign_zero();
-  for (int i = 0; i < this->popen_cnt; ++i)
-  {
-    T xji = shares[i];
-    V xbarji = xji;
-    U pji = U((xji - xbarji) >> k);
-    pj += chi[i] * pji;
-  }
-  pj += U(r.get_share());
-
-  U pbar(pj);
-  vector<octetStream> pj_stream(P.num_players());
-  pj.pack(pj_stream[P.my_num()]);
-  P.unchecked_broadcast(pj_stream);
-  for (int j=0; j<P.num_players(); j++) {
-    if (j!=P.my_num()) {
-      pbar += pj_stream[j].consume(U::size());
-    }
-  }
-
-  T zj = mj - (this->alphai * y) - (((this->alphai * pbar)) << k) + (lj << k);
+  T zj = mj - this->alphai * y;
   vector<T> zjs(P.num_players());
   zjs[P.my_num()] = zj;
-  Commit_And_Open(zjs, P);
+
+  assert(this->coordinator);
+  Commit_And_Open(zjs, P, *this->coordinator);
 
   T zj_sum;
   zj_sum.assign_zero();
@@ -325,7 +331,6 @@ void MAC_Check_Z2k<T, U, V, W>::Check(const Player& P)
 
   this->vals.erase(this->vals.begin(), this->vals.begin() + this->popen_cnt);
   this->macs.erase(this->macs.begin(), this->macs.begin() + this->popen_cnt);
-  this->shares.erase(this->shares.begin(), this->shares.begin() + this->popen_cnt);
   this->popen_cnt=0;
   if (!zj_sum.is_zero()) { throw mac_fail(); }
 }
@@ -341,7 +346,7 @@ Direct_MAC_Check<T>::Direct_MAC_Check(const typename T::mac_key_type::Scalar& ai
 
 template<class T>
 Direct_MAC_Check<T>::Direct_MAC_Check(const typename T::mac_key_type::Scalar& ai) :
-    MAC_Check_<T>(ai)
+    Tree_MAC_Check<T>(ai), MAC_Check_<T>(ai)
 {
   open_counter = 0;
 }
@@ -355,10 +360,13 @@ Direct_MAC_Check<T>::~Direct_MAC_Check() {
 template<class T>
 void direct_add_openings(vector<T>& values, const PlayerBase& P, vector<octetStream>& os)
 {
-  for (unsigned int i=0; i<values.size(); i++)
-    for (int j=0; j<P.num_players(); j++)
-      if (j!=P.my_num())
-	values[i].add(os.at(j));
+  size_t n = P.num_players();
+  size_t me = P.my_num();
+  assert(os.size() == n);
+  for (auto& value : values)
+    for (size_t j = 0; j < n; j++)
+      if (j != me)
+        value += os[j].get<T>();
 }
 
 template<class T>
@@ -370,6 +378,7 @@ void Direct_MAC_Check<T>::pre_exchange(const Player& P)
 
   for (auto& x : this->values)
     x.pack(oss[P.my_num()]);
+  oss[P.my_num()].append(0);
 }
 
 
@@ -396,8 +405,9 @@ void Direct_MAC_Check<T>::init_open(const Player& P, int n)
 }
 
 template<class T>
-void Direct_MAC_Check<T>::prepare_open(const T& secret)
+void Direct_MAC_Check<T>::prepare_open(const T& secret, int)
 {
+  assert(T::mac_type::invertible);
   this->values.push_back(secret.get_share());
   this->macs.push_back(secret.get_mac());
 }

@@ -2,7 +2,7 @@ from Compiler import instructions_base
 import sys
 
 program.bit_length = 128
-nparallel = int(sys.argv[2])
+nparallel = int(program.args[1])
 
 instructions_base.set_global_vector_size(nparallel)
 use_cubes = True

@@ -27,7 +27,7 @@ class MaliciousShamirShare : public ShamirShare<T>
     typedef MaliciousShamirShare This;
 
 public:
-    typedef Beaver<MaliciousShamirShare<T>> Protocol;
+    typedef Beaver<MaliciousShamirShare<T>> BasicProtocol;
     typedef MaliciousShamirMC<MaliciousShamirShare> MAC_Check;
     typedef MAC_Check Direct_MC;
     typedef ShamirInput<MaliciousShamirShare> Input;
@@ -37,10 +37,17 @@ public:
     typedef MaliciousRepPrepWithBits<MaliciousShamirShare> LivePrep;
     typedef MaliciousRepPrep<MaliciousShamirShare> TriplePrep;
     typedef T random_type;
+    typedef MaybeHemi<This> Protocol;
+    typedef DummyMatrixPrep<This> MatrixPrep;
+
+    // indicate security relevance of field size
+    typedef T mac_key_type;
 
 #ifndef NO_MIXED_CIRCUITS
     typedef GC::MaliciousCcdSecret<gf2n_short> bit_type;
 #endif
+
+    static const bool malicious = true;
 
     static string type_short()
     {

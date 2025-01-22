@@ -2,7 +2,7 @@
 #define _Modp
 
 /* 
- * Currently we only support an MPIR based implementation.
+ * Currently we only support an GMP based implementation.
  *
  * What ever is type-def'd to bigint is assumed to have
  * operator overloading for all standard operators, has
@@ -132,7 +132,7 @@ class modp_
   //  - Can do in human or machine only format (later should be faster)
   //  - If human output appends a space to help with reading
   //    and also convert back/forth from Montgomery if needed
-  void output(ostream& s,const Zp_Data& ZpD,bool human) const;
+  void output(ostream& s, const Zp_Data& ZpD, bool human, bool signed_ = false) const;
   void input(istream& s,const Zp_Data& ZpD,bool human);
 
   template<int X, int K>
@@ -150,7 +150,7 @@ inline void modp_<L>::pack(octetStream& o,const Zp_Data& ZpD) const
 template<int L>
 void assignZero(modp_<L>& x,const Zp_Data& ZpD)
 {
-  if (sizeof(x.x) <= 3 * 16)
+  if (sizeof(x.x) <= 3 * 16 or ZpD.pr_byte_length == 0)
     // use memset to allow the compiler to optimize
     // if x.x is at most 3*128 bits
     avx_memzero(x.x, sizeof(x.x));

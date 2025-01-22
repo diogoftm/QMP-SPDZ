@@ -13,25 +13,35 @@
  * Matrix multiplication optimized with semi-homomorphic encryption
  */
 template<class T>
-class Hemi : public Semi<T>
+class Hemi : public T::BasicProtocol
 {
-    map<array<int, 3>, HemiMatrixPrep<T>*> matrix_preps;
+    typedef Preprocessing<ShareMatrix<T>> matrix_prep;
 
-    ShareMatrix<T> matrix_multiply(const ShareMatrix<T>& A, const ShareMatrix<T>& B,
-            SubProcessor<T>& processor);
+    map<array<int, 3>, matrix_prep*> matrix_preps;
+    DataPositions matrix_usage;
+
+    MatrixMC<T>* mc;
+
+    bool warned = false;
 
 public:
     Hemi(Player& P) :
-            Semi<T>(P)
+            T::BasicProtocol(P), mc(0)
     {
     }
     ~Hemi();
 
-    HemiMatrixPrep<T>& get_matrix_prep(const array<int, 3>& dimensions,
+    matrix_prep& get_matrix_prep(const array<int, 3>& dimensions,
             SubProcessor<T>& processor);
 
-    void matmulsm(SubProcessor<T>& processor, CheckVector<T>& source,
-            const Instruction& instruction, int a, int b);
+    bool use_plain_matmul(const array<int, 3> dimensions,
+            SubProcessor<T>& processor);
+
+    ShareMatrix<T> matrix_multiply(const ShareMatrix<T>& A, const ShareMatrix<T>& B,
+            SubProcessor<T>& processor);
+
+    void matmulsm(SubProcessor<T>& processor, MemoryPart<T>& source,
+            const Instruction& instruction);
     void conv2ds(SubProcessor<T>& processor, const Instruction& instruction);
 };
 

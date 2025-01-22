@@ -10,18 +10,18 @@
 void check_ssl_file(string filename)
 {
     if (not ifstream(filename))
-        throw runtime_error("Cannot access " + filename
+        exit_error("Cannot access " + filename
                         + ". Have you set up SSL?\n"
                         "You can use `Scripts/setup-ssl.sh <nparties>`.");
 }
 
-void ssl_error(string side, string other, string me)
+void ssl_error(string side, string other, string me, exception& e)
 {
     cerr << side << "-side handshake with " << other
             << " failed. Make sure both sides "
-            << " have the necessary certificate (" << PREP_DIR << me
+            << " have the necessary certificate (" << SSL_DIR << me
             << ".pem in the default configuration on their side and "
-            << PREP_DIR << other << ".pem on ours),"
+            << SSL_DIR << other << ".pem on ours),"
             << " and run `c_rehash <directory>` on its location." << endl
             << "The certificates should be the same on every host. "
             << "Also make sure that it's still valid. Certificates generated "
@@ -36,7 +36,7 @@ void ssl_error(string side, string other, string me)
     cerr << "Signature (should match the other side): ";
     for (int i = 0; i < 2; i++)
     {
-        auto filename = PREP_DIR + ids[i] + ".pem";
+        auto filename = SSL_DIR + ids[i] + ".pem";
         ifstream cert(filename);
         stringstream buffer;
         buffer << cert.rdbuf();
@@ -48,10 +48,12 @@ void ssl_error(string side, string other, string me)
             cerr << "/";
     }
     cerr << endl;
+    cerr << "SSL error: " << e.what() << endl;
+    exit(1);
 }
 
 CryptoPlayer::CryptoPlayer(const Names& Nms, const string& id_base) :
-        MultiPlayer<ssl_socket*>(Nms),
+        MultiPlayer<ssl_socket*>(Nms, id_base),
         ctx("P" + to_string(my_num()))
 {
     sockets.resize(num_players());
@@ -93,8 +95,10 @@ CryptoPlayer::CryptoPlayer(const Names& Nms, const string& id_base) :
             continue;
         }
 
-        senders[i] = new Sender<ssl_socket*>(i < my_num() ? sockets[i] : other_sockets[i]);
-        receivers[i] = new Receiver<ssl_socket*>(i < my_num() ? other_sockets[i] : sockets[i]);
+        senders[i] = new Sender<ssl_socket*>(
+                i < my_num() ? sockets[i] : other_sockets[i], i);
+        receivers[i] = new Receiver<ssl_socket*>(
+                i < my_num() ? other_sockets[i] : sockets[i], i);
     }
 }
 
@@ -135,6 +139,34 @@ void CryptoPlayer::receive_player_no_stats(int other, octetStream& o) const
     assert(other != my_num());
     receivers[other]->request(o);
     receivers[other]->wait(o);
+}
+
+size_t CryptoPlayer::send_no_stats(int player, const PlayerBuffer& buffer,
+        bool block) const
+{
+    assert(player != my_num());
+    auto socket = senders.at(player)->get_socket();
+    if (block)
+    {
+        send(socket, buffer.data, buffer.size);
+        return buffer.size;
+    }
+    else
+        return send_non_blocking(socket, buffer.data, buffer.size);
+}
+
+size_t CryptoPlayer::recv_no_stats(int player, const PlayerBuffer& buffer,
+        bool block) const
+{
+    assert(player != my_num());
+    auto socket = receivers.at(player)->get_socket();
+    if (block)
+    {
+        receive(socket, buffer.data, buffer.size);
+        return buffer.size;
+    }
+    else
+        return receive_non_blocking(socket, buffer.data, buffer.size);
 }
 
 void CryptoPlayer::exchange_no_stats(int other, const octetStream& to_send,
@@ -212,8 +244,8 @@ void CryptoPlayer::partial_broadcast(const vector<bool>& my_senders,
     for (int offset = 1; offset < num_players(); offset++)
     {
         int other = get_player(offset);
-        bool receive = my_senders[other];
-        if (my_receivers[other])
+        bool receive = my_senders.at(other);
+        if (my_receivers.at(other))
         {
             this->senders[other]->request(os[my_num()]);
             sent += os[my_num()].get_length();

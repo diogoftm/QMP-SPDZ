@@ -18,7 +18,7 @@ bool gf2n_<U>::useC;
 
 word gf2n_short_table[256][256];
 
-#define num_2_fields 7
+#define num_2_fields 17
 
 /* Require
  *  2*(n-1)-64+t1<64
@@ -26,13 +26,36 @@ word gf2n_short_table[256][256];
 int fields_2[num_2_fields][4] =
 {
     { 4, 1, 0, 0 },
+    { 5, 2, 0, 0 },
+    { 6, 1, 0, 0 },
+    { 7, 1, 0, 0 },
     { 8, 4, 3, 1 },
+    { 9, 1, 0, 0 },
+    { 10, 3, 0, 0},
+    { 11, 2, 0, 0},
+    { 12, 3, 0, 0},
+    { 14, 5, 0, 0},
+    { 15, 1, 0, 0},
     { 16, 5, 3, 1 },
     { 28, 1, 0, 0 },
     { 40, 20, 15, 10 },
     { 63, 1, 0, 0 },
+    { 64, 4, 3, 1},
     { 128, 7, 2, 1 },
 };
+
+template<class U>
+string gf2n_<U>::options()
+{
+    string res = to_string(fields_2[0][0]);
+    for (int i = 1; i < num_2_fields; i++)
+    {
+        int n = fields_2[i][0];
+        if (n <= MAX_N_BITS)
+            res += ", " + to_string(n);
+    }
+    return res;
+}
 
 template<class U>
 void gf2n_<U>::init_tables()
@@ -53,6 +76,21 @@ void gf2n_<U>::init_tables()
             }
          }
     }
+}
+
+template<class U>
+void gf2n_<U>::init_minimum(int lower)
+{
+  if (lower <= n)
+    return;
+
+  for (int i = 0; i < num_2_fields; i++)
+    {
+      int n = fields_2[i][0];
+      if (lower <= n and n <= MAX_N_BITS)
+        return init_field(n);
+    }
+  throw runtime_error("no suitable field for minimum degree " + to_string(lower));
 }
 
 void gf2n_short::init_field(int nn)
@@ -88,7 +126,7 @@ void gf2n_<U>::init_field(int nn)
 
   if (j==-1)
     {
-      throw runtime_error("field size not supported");
+      throw gf2n_not_supported(nn, options());
     }
 
   n=nn;
@@ -332,7 +370,11 @@ gf2n_<U> gf2n_<U>::invert() const
   if (n < 64)
     return U(invert<word>(a));
   else
-    return invert<bit_plus<U>>(a).get_lower();
+    {
+      gf2n_ res;
+      res.a = invert<int128>(a).get_lower();
+      return res;
+    }
 }
 
 template<>
@@ -412,20 +454,16 @@ void gf2n_<U>::randomize(PRNG& G, int n)
   a&=mask;
 }
 
-template<>
-void gf2n_<octet>::output(ostream& s,bool human) const
-{
-  if (human)
-    s << hex << showbase << word(a) << dec;
-  else
-    s.write((char*) &a, sizeof(octet));
-}
-
 template<class U>
 void gf2n_<U>::output(ostream& s,bool human) const
 {
   if (human)
-    { s << hex << showbase << a << dec; }
+    {
+      if (n > 64)
+        s << hex << a << dec;
+      else
+        s << hex << to_word(a) << dec;
+    }
   else
     { s.write((char*) &a, (sizeof(U))); }
 }
@@ -442,7 +480,16 @@ void gf2n_<U>::input(istream& s,bool human)
     }
 
   if (human)
-    { s >> hex >> a >> dec; } 
+    {
+      if (n > 64)
+        s >> hex >> a >> dec;
+      else
+        {
+          word tmp;
+          s >> hex >> tmp >> dec;
+          *this = U(tmp);
+        }
+    }
   else
     { s.read((char*) &a, sizeof(U)); }
 
@@ -463,6 +510,7 @@ gf2n_short::gf2n_short(const int128& a)
 // Expansion is by x=y^5+1 (as we embed GF(256) into GF(2^40)
 void expand_byte(gf2n_short& a,int b)
 {
+  gf2n_short::init_field(40);
   gf2n_short x,xp;
   x = (32+1);
   xp.assign_one();

@@ -10,11 +10,14 @@
 #include "GC/Memory.h"
 #include "GC/Access.h"
 #include "GC/ArgTuples.h"
+#include "GC/NoShare.h"
+#include "GC/Processor.h"
 
 #include "Math/gf2nlong.h"
 #include "Tools/SwitchableOutput.h"
 
 #include "Processor/DummyProtocol.h"
+#include "Processor/Instruction.h"
 #include "Protocols/FakePrep.h"
 #include "Protocols/FakeMC.h"
 #include "Protocols/FakeProtocol.h"
@@ -40,7 +43,6 @@ public:
     typedef FakeSecret DynamicType;
     typedef Memory<FakeSecret> DynamicMemory;
 
-    typedef BitVec mac_key_type;
     typedef BitVec clear;
     typedef BitVec open_type;
 
@@ -85,6 +87,11 @@ public:
     { processor.andrs(args); }
     static void ands(GC::Processor<FakeSecret>& processor, const vector<int>& regs);
     template <class T>
+    static void andrsvec(T&, const vector<int>&)
+    { throw runtime_error("andrsvec not implemented"); }
+    static void andm(GC::Processor<FakeSecret>& processor, const ::Instruction& instruction)
+    { processor.andm(instruction); }
+    template <class T>
     static void xors(GC::Processor<T>& processor, const vector<int>& regs)
     { processor.xors(regs); }
     template <class T>
@@ -112,6 +119,8 @@ public:
     static void andm(GC::Processor<U>&, const BaseInstruction&)
     { throw runtime_error("andm not implemented"); }
 
+    static void run_tapes(const vector<int>& args);
+
     static FakeSecret input(GC::Processor<FakeSecret>& processor, const InputArgs& args);
     static FakeSecret input(int from, word input, int n_bits);
 
@@ -133,8 +142,8 @@ public:
     template <class T>
     void store(Memory<T>& mem, size_t address) { mem[address] = *this; }
 
-    void bitcom(Memory<FakeSecret>& S, const vector<int>& regs);
-    void bitdec(Memory<FakeSecret>& S, const vector<int>& regs) const;
+    void bitcom(StackedVector<FakeSecret>& S, const vector<int>& regs);
+    void bitdec(StackedVector<FakeSecret>& S, const vector<int>& regs) const;
 
     template <class T>
     void xor_(int n, const FakeSecret& x, const T& y)

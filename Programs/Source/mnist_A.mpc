@@ -82,22 +82,8 @@ def _(i):
     sgd.run(batch_size)
     stop_timer(1)
 
-    def get_correct(Y, n):
-        n_correct = regint(0)
-        for i in range(n):
-            n_correct += (Y[i].reveal() > 0).bit_xor(
-                layers[-2].Y[i][0][0][0].reveal() < 0)
-        return n_correct
-
-    sgd.forward(N)
-
-    n_correct = get_correct(layers[-1].Y, N)
+    n_correct, loss = sgd.reveal_correctness(layers[0].X, layers[-1].Y)
     print_ln('train_acc: %s (%s/%s)', cfix(n_correct) / N, n_correct, N)
 
-    training_address = layers[0].X.address
-    layers[0].X.address = X.address
-    sgd.forward(n_test)
-    layers[0].X.address = training_address
-
-    n_correct = get_correct(Y, n_test)
+    n_correct, loss = sgd.reveal_correctness(X, Y)
     print_ln('acc: %s (%s/%s)', cfix(n_correct) / n_test, n_correct, n_test)

@@ -9,6 +9,7 @@
 #include "Protocols/MaliciousRep3Share.h"
 #include "Protocols/MalRepRingShare.h"
 #include "Protocols/Rep3Share2k.h"
+#include "GC/MaliciousRepSecret.h"
 
 template<class T> class MalRepRingPrepWithBits;
 template<class T> class PostSacrifice;
@@ -24,19 +25,22 @@ public:
     static const int SECURITY = S;
 
     static const bool has_trunc_pr = false;
+    static const bool malicious = true;
 
     typedef SignedZ2<K> clear;
     typedef MaliciousRep3Share<Z2<K + S>> prep_type;
     typedef Z2<S> random_type;
     typedef MalRepRingShare<K + 2, S> SquareToBitShare;
 
-    typedef PostSacrifice<PostSacriRepRingShare> Protocol;
+    typedef PostSacrifice<PostSacriRepRingShare> BasicProtocol;
     typedef HashMaliciousRepMC<PostSacriRepRingShare> MAC_Check;
     typedef MAC_Check Direct_MC;
     typedef ReplicatedInput<PostSacriRepRingShare> Input;
     typedef ReplicatedPO<This> PO;
     typedef SpecificPrivateOutput<This> PrivateOutput;
     typedef MalRepRingPrepWithBits<PostSacriRepRingShare> LivePrep;
+    typedef MaybeHemi<This> Protocol;
+    typedef DummyMatrixPrep<This> MatrixPrep;
 
     typedef GC::MaliciousRepSecret bit_type;
 
@@ -60,7 +64,7 @@ public:
     }
 
     template<class U>
-    static void split(vector<U>& dest, const vector<int>& regs, int n_bits,
+    static void split(StackedVector<U>& dest, const vector<int>& regs, int n_bits,
             const super* source, int n_inputs,
             typename bit_type::Protocol& protocol)
     {

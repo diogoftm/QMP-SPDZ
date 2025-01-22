@@ -7,14 +7,7 @@
 
 #define NO_MIXED_CIRCUITS
 
-#include "Math/gfp.hpp"
-#include "Machines/SPDZ.hpp"
-#include "Machines/MalRep.hpp"
-#include "Machines/ShamirMachine.hpp"
-#include "Machines/Semi2k.hpp"
-#include "Protocols/CowGearShare.h"
-#include "Protocols/CowGearPrep.hpp"
-#include "Protocols/ProtocolSet.h"
+#include "Machines/maximal.hpp"
 
 template<class T>
 void run(char** argv, int prime_length);
@@ -30,7 +23,9 @@ int main(int argc, char** argv)
     // need player number and number of players
     if (argc < 3)
     {
-        cerr << "Usage: " << argv[0] << "<my number: 0/1/...> <total number of players> [protocol [threshold]]" << endl;
+        cerr << "Usage: " << argv[0]
+                << " <my number: 0/1/...> <total number of players> [protocol [threshold]]"
+                << endl;
         exit(1);
     }
 

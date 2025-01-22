@@ -81,7 +81,7 @@ void InputBase<T>::reset(int player)
 }
 
 template<class T>
-void InputBase<T>::reset_all(Player& P)
+void InputBase<T>::reset_all(PlayerBase& P)
 {
     this->P = &P;
     my_num = P.my_num();
@@ -125,6 +125,7 @@ void InputBase<T>::add_from_all(const typename T::open_type& input, int n_bits)
 template<class T>
 void Input<T>::send_mine()
 {
+    this->os[P.my_num()].append(0);
     P.send_all(this->os[P.my_num()]);
 }
 

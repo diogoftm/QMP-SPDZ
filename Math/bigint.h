@@ -5,13 +5,14 @@
 using namespace std;
 
 #include <stddef.h>
-#include <mpirxx.h>
+#include <gmpxx.h>
 
 #include "Tools/Exceptions.h"
 #include "Tools/int.h"
 #include "Tools/random.h"
 #include "Tools/octetStream.h"
 #include "Tools/avx_memcpy.h"
+#include "Protocols/config.h"
 
 enum ReportType
 {
@@ -36,6 +37,13 @@ namespace GC
   class Clear;
 }
 
+/**
+ * Type for arbitrarily large integers.
+ * This is a sub-class of ``mpz_class`` from GMP. As such, it implements
+ * all integers operations and input/output via C++ streams. In addition,
+ * the ``get_ui()`` member function allows retrieving the least significant
+ * 64 bits.
+ */
 class bigint : public mpz_class
 {
 public:
@@ -50,15 +58,20 @@ public:
   template<class U, class T>
   static void output_float(U& o, const mpf_class& x, T nan);
 
+  /// Initialize to zero.
   bigint() : mpz_class() {}
   template <class T>
   bigint(const T& x) : mpz_class(x) {}
+  /// Convert to canonical representation as non-negative number.
   template<int X, int L>
   bigint(const gfp_<X, L>& x);
+  /// Convert to canonical representation as non-negative number.
   template<int X, int L>
   bigint(const gfpvar_<X, L>& x);
+  /// Convert to canonical representation as non-negative number.
   template <int K>
   bigint(const Z2<K>& x);
+  /// Convert to canonical representation as non-negative number.
   template <int K>
   bigint(const SignedZ2<K>& x);
   template <int L>
@@ -78,6 +91,7 @@ public:
   template<int K>
   bigint& operator=(const SignedZ2<K>& x);
 
+  /// Convert to signed representation in :math:`[-p/2,p/2]`.
   template<int X, int L>
   bigint& from_signed(const gfp_<X, L>& other);
   template<class T>
@@ -114,10 +128,10 @@ public:
   { return mpz_sizeinbase(get_mpz_t(), 2); }
 
   void generateUniform(PRNG& G, int n_bits, bool positive = false)
-  { G.get_bigint(*this, n_bits, positive); }
+  { G.get(*this, n_bits, positive); }
 
-  void pack(octetStream& os) const { os.store(*this); }
-  void unpack(octetStream& os)     { os.get(*this); };
+  void pack(octetStream& os, int = -1) const { os.store(*this); }
+  void unpack(octetStream& os, int = -1)     { os.get(*this); };
 
   size_t report_size(ReportType type) const;
 };
@@ -125,8 +139,6 @@ public:
 
 void inline_mpn_zero(mp_limb_t* x, mp_size_t size);
 void inline_mpn_copyi(mp_limb_t* dest, const mp_limb_t* src, mp_size_t size);
-
-#include "Z2k.h"
 
 
 inline bigint& bigint::operator=(int n)
@@ -257,7 +269,7 @@ inline int numBits(long m)
 
 
 
-inline int numBytes(const bigint& m)
+inline size_t numBytes(const bigint& m)
 {
   return mpz_sizeinbase(m.get_mpz_t(),256);
 }
@@ -268,10 +280,7 @@ inline int numBytes(const bigint& m)
 
 inline int probPrime(const bigint& x)
 {
-  gmp_randstate_t rand_state;
-  gmp_randinit_default(rand_state);
-  int ans=mpz_probable_prime_p(x.get_mpz_t(),rand_state,40,0);
-  gmp_randclear(rand_state);
+  int ans = mpz_probab_prime_p(x.get_mpz_t(), max(40, DEFAULT_SECURITY) / 2);
   return ans;
 }
 
@@ -289,12 +298,13 @@ inline void bigintFromBytes(bigint& x,octet* bytes,int len)
 
 inline void bytesFromBigint(octet* bytes,const bigint& x,unsigned int len)
 {
-  size_t ll;
-  mpz_export(bytes,&ll,1,sizeof(octet),0,0,x.get_mpz_t());
+  size_t ll = x == 0 ? 0 : numBytes(x);
   if (ll>len)
     { throw invalid_length(); }
-  for (unsigned int i=ll; i<len; i++)
-    { bytes[i]=0; }
+  memset(bytes, 0, len - ll);
+  size_t l;
+  mpz_export(bytes + len - ll, &l, 1, sizeof(octet), 0, 0, x.get_mpz_t());
+  assert(ll == l);
 }
 
 
@@ -304,7 +314,8 @@ inline int isOdd(const bigint& x)
 }
 
 
-bigint sqrRootMod(const bigint& x,const bigint& p);
+template<class T>
+bigint sqrRootMod(const T& x);
 
 bigint powerMod(const bigint& x,const bigint& e,const bigint& p);
 

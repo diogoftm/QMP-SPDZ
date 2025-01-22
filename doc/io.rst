@@ -1,3 +1,5 @@
+.. _io:
+
 Input/Output
 ------------
 
@@ -46,7 +48,8 @@ By default, :py:func:`~Compiler.library.print_ln` and related
 functions only output to the terminal on party 0. This allows to run
 several parties in one terminal without spoiling the output. You can
 use interactive mode with option ``-I`` in order to output on all
-parties. Note that this also to reading inputs from the command line
+parties or ``-OF .`` to activate the output without interactive mode.
+Note that the former also causes to inputs from the command line
 unless you specify ``-IF`` as well. You can also specify a file prefix
 with ``-OF``, so that outputs are written to
 ``<prefix>-P<player>-<thread>``.
@@ -76,8 +79,8 @@ Clients (Non-computing Parties)
 
 :py:func:`Compiler.types.sint.receive_from_client` and
 :py:func:`Compiler.types.sint.reveal_to_clients` allow
-communicating securely with the clients. See `this example
-<https://github.com/data61/MP-SPDZ/tree/master/ExternalIO>`_
+communicating securely with the clients. See `the relevant section
+<client-interface.html>`_
 covering both client code and server-side high-level code.
 :py:func:`Compiler.types.sint.input_tensor_from_client` and
 :py:func:`Compiler.types.MultiArray.reveal_to_clients`. The same
@@ -86,14 +89,33 @@ functions are available for :py:class:`~Compiler.types.sfix` and
 See also :ref:`client ref` below.
 
 
-Secret Shares
-~~~~~~~~~~~~~
+Secret Shares via Socket
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+Secret can be sent and received via socket by using
+:py:func:`~Compiler.types.sint.write_to_socket` and
+:py:func:`~Compiler.types.sint.read_from_socket` (and the same
+functions in :py:class:`~Compiler.types.sfix`). The connections are set
+up in the same way as in the previous section. See :ref:`multinode`
+for an example how this is used to distribute every party among
+multiple nodes. If you use the client interface, you should use the
+:cpp:class:`octetStream` class for serialization. The format is the same
+as in the following section.
+
+
+.. _persistence:
+
+Secret Shares via Files
+~~~~~~~~~~~~~~~~~~~~~~~
 
 :py:func:`Compiler.types.sint.read_from_file` and
 :py:func:`Compiler.types.sint.write_to_file` allow reading and writing
 secret shares to and from files. These instructions use
-``Persistence/Transactions-P<playerno>.data``. The format depends on
-the protocol with the following principles.
+``Persistence/Transactions-P<playerno>.data``. This files use the same
+header as :ref:`preprocessing files <prep-files>`. The format for the
+shares data depends on the protocol and is created by the ``output``
+member function of the relevant :ref:`share type <share-type-reference>`. It
+follows the following principles:
 
 - One share follows the other without metadata.
 - If there is a MAC, it comes after the share.
@@ -117,10 +139,76 @@ etc. Note also that all types based on
 address is only a base address. This means that vectors will be
 written to the memory starting at the given address.
 
+
+Python Trusted Client Tutorial
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+In this section, we will illustrate how to use the client interface to
+supplement individual parties in the secure computation. This example
+consists of :download:`../Programs/Source/personal_client_example.py`
+for the server side and
+:download:`../ExternalIO/personal-client-example.py` for the client
+side.
+
+The servers start by listening for and accepting one connection::
+
+  listen_for_clients(15000)
+  socket = accept_client_connection(15000)
+
+The clients in turn connect to the server that is assigned to them::
+
+  party = int(sys.argv[1])
+  client = Client(['localhost'], 15000 + party, 0)
+
+:py:obj:`party` stands for the number of the relevant server. Then,
+the clients of the of the first two servers sample 1000 random values
+and send them to their assigned server::
+
+  n = 1000
+  if party < 2:
+    client.send_public_inputs(random.gauss(0, 1) * 2 ** 16 for i in range(n))
+
+Note that the values are multiplied by :math:`2^{16}` to match the
+default fixed-point precision.
+
+The first two servers then receive these values, convert them to
+shares, and then send the *shares* to their personal client::
+
+  n = 1000
+  for i in range(2):
+    x = personal.read_fix_from_socket(i, socket, n)
+    sfix(x).write_fully_to_socket(socket)
+
+Note that all servers run this code because they are all involved in
+the secret-sharing process. If you're aiming for the secret sharing to
+happen on the client side, see `this section <client-interface>`_.
+
+The clients receive the shares and sum them pair-wise before sending them
+back::
+
+  x = [client.receive_plain_values() for i in range(2)]
+  client.send_public_inputs(a + b for a, b in zip(*x))
+
+Note that this works whether the shares have MACs or not because
+adding shares with MACs amounts to simply adding both.
+
+The servers finally receive the summed values, perform another sum,
+and output the result::
+
+  res = sum(sfix.read_from_socket(socket, n))
+  print_ln('%s', res.reveal())
+
+
+Python Reference
+~~~~~~~~~~~~~~~~
+
+.. autoclass:: ExternalIO.client.Client
+   :members:
+
 .. _client ref:
 
-Reference
-~~~~~~~~~
+C++ Reference
+~~~~~~~~~~~~~
 
 .. doxygenclass:: Client
    :members:

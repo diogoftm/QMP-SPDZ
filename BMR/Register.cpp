@@ -172,8 +172,12 @@ void EvalRegister::andrs(GC::Processor<GC::Secret<EvalRegister> >& processor,
 	for (size_t j = 0; j < args.size(); j += 4)
 	{
 		AndJob& and_job = party.and_jobs[i_thread];
-		GC::Secret<EvalRegister>& dest = processor.S[args[j + 1]];
-		dest.resize_regs(args[j]);
+		int dl = GC::Clear::N_BITS;
+		for (int i = 0; i < args[j]; i += dl)
+		{
+			GC::Secret<EvalRegister>& dest = processor.S[args[j + 1] + i / dl];
+			dest.resize_regs(min(args[j] - i, dl));
+		}
 		processor.complexity += args[j];
 		for (int i = 0; i < args[j]; i++)
 		{
@@ -568,6 +572,7 @@ void EvalRegister::inputb(GC::Processor<GC::Secret<EvalRegister> >& processor,
 	octetStream& my_os = oss[party.get_id() - 1];
 	vector<InputAccess> accesses;
 	InputArgList a(args);
+	processor.complexity += a.n_input_bits();
 	for (auto x : a)
 	{
 		accesses.push_back({x , processor});

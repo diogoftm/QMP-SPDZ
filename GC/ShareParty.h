@@ -6,8 +6,6 @@
 #ifndef GC_SHAREPARTY_H_
 #define GC_SHAREPARTY_H_
 
-#include "Protocols/ReplicatedMC.h"
-#include "Protocols/MaliciousRepMC.h"
 #include "ShareSecret.h"
 #include "Processor.h"
 #include "Program.h"
@@ -44,7 +42,7 @@ inline ShareParty<T>& ShareParty<T>::s()
     if (singleton)
         return *singleton;
     else
-        throw runtime_error("no singleton");
+        throw runtime_error("no ShareParty singleton");
 }
 
 }

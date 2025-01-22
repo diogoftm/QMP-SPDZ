@@ -1,11 +1,19 @@
+""" This module implements `Dijkstra's algorithm
+<https://en.wikipedia.org/wiki/Dijkstra%27s_algorithm>`_ based on
+oblivious RAM. """
+
+
 from Compiler.oram import *
 
 from Compiler.program import Program
 
 ORAM = OptimalORAM
 
-prog = program.Program.prog
-prog.set_bit_length(min(64, prog.bit_length))
+try:
+    prog = program.Program.prog
+    prog.set_bit_length(min(64, prog.bit_length))
+except AttributeError:
+    pass
 
 class HeapEntry(object):
     fields = ['empty', 'prio', 'value']
@@ -47,9 +55,11 @@ class HeapEntry(object):
         print_ln('empty %s, prio %s, value %s', *(reveal(x) for x in self))
 
 class HeapORAM(object):
-    def __init__(self, size, oram_type, init_rounds, int_type):
+    def __init__(self, size, oram_type, init_rounds, int_type, entry_size=None):
+        if entry_size is None:
+            entry_size = (32,log2(size))
         self.int_type = int_type
-        self.oram = oram_type(size, entry_size=(32,log2(size)), \
+        self.oram = oram_type(size, entry_size=entry_size, \
                                   init_rounds=init_rounds, \
                                   value_type=int_type.basic_type)
     def __getitem__(self, index):
@@ -74,13 +84,15 @@ class HeapORAM(object):
         return len(self.oram)
 
 class HeapQ(object):
-    def __init__(self, max_size, oram_type=ORAM, init_rounds=-1, int_type=sint):
+    def __init__(self, max_size, oram_type=ORAM, init_rounds=-1, int_type=sint, entry_size=None):
+        if entry_size is None:
+            entry_size = (32, log2(max_size))
         basic_type = int_type.basic_type
         self.max_size = max_size
         self.levels = log2(max_size)
         self.depth = self.levels - 1
-        self.heap = HeapORAM(2**self.levels, oram_type, init_rounds, int_type)
-        self.value_index = oram_type(max_size, entry_size=log2(max_size), \
+        self.heap = HeapORAM(2**self.levels, oram_type, init_rounds, int_type, entry_size=entry_size)
+        self.value_index = oram_type(max_size, entry_size=entry_size[1], \
                                          init_rounds=init_rounds, \
                                          value_type=basic_type)
         self.size = MemValue(int_type(0))
@@ -99,7 +111,7 @@ class HeapQ(object):
         bits.reverse()
         bits = [0] + floatingpoint.PreOR(bits, self.levels)
         bits = [bits[i+1] - bits[i] for i in range(self.levels)]
-        shift = sum([bit << i for i,bit in enumerate(bits)])
+        shift = self.int_type.bit_compose(bits)
         childpos = MemValue(start * shift)
         @for_range(self.levels - 1)
         def f(i):
@@ -215,12 +227,27 @@ class HeapQ(object):
         print_ln()
         print_ln()
 
-def dijkstra(source, edges, e_index, oram_type, n_loops=None, int_type=sint):
-    basic_type = int_type.basic_type
+def dijkstra(source, edges, e_index, oram_type, n_loops=None, int_type=None,
+             debug=False):
+    """ Securely compute Dijstra's algorithm on a secret graph. See
+    :download:`../Programs/Source/dijkstra_example.mpc` for an
+    explanation of the required inputs.
+
+    :param source: source node (secret or clear-text integer)
+    :param edges: ORAM representation of edges
+    :param e_index: ORAM representation of vertices
+    :param oram_type: ORAM type to use internally (default:
+      :py:func:`~Compiler.oram.OptimalORAM`)
+    :param n_loops: when to stop (default: number of edges)
+    :param int_type: secret integer type (default: sint)
+
+    """
     vert_loops = n_loops * e_index.size // edges.size \
         if n_loops else -1
     dist = oram_type(e_index.size, entry_size=(32,log2(e_index.size)), \
-                         init_rounds=vert_loops, value_type=basic_type)
+                         init_rounds=vert_loops, value_type=int_type)
+    int_type = dist.value_type
+    basic_type = int_type.basic_type
     #visited = ORAM(e_index.size)
     #previous = oram_type(e_index.size)
     Q = HeapQ(e_index.size, oram_type, init_rounds=vert_loops, \
@@ -238,10 +265,12 @@ def dijkstra(source, edges, e_index, oram_type, n_loops=None, int_type=sint):
     last_edge = MemValue(basic_type(1))
     i_edge = MemValue(int_type(0))
     u = MemValue(basic_type(0))
+    running = MemValue(basic_type(1))
     @for_range(n_loops or edges.size)
     def f(i):
-        cint(i).print_reg('loop')
+        print_ln('loop %s', i)
         time()
+        running.write(last_edge.bit_not().bit_or(Q.size > 0).bit_and(running))
         u.write(if_else(last_edge, Q.pop(last_edge), u))
         #visited.access(u, True, last_edge)
         i_edge.write(int_type(if_else(last_edge, e_index[u], i_edge)))
@@ -253,30 +282,50 @@ def dijkstra(source, edges, e_index, oram_type, n_loops=None, int_type=sint):
         dv, not_visited = dist.read(v)
         # relying on default dv negative here
         is_shorter = (alt < int_type(dv[0])) + not_visited
+        is_shorter *= running
         dist.access(v, (basic_type(alt), u), is_shorter)
         #previous.access(v, u, is_shorter)
         Q.update(v, basic_type(alt), is_shorter)
-        print_ln('u: %s, v: %s, alt: %s, dv: %s, first visit: %s', \
-                     u.reveal(), v.reveal(), alt.reveal(), dv[0].reveal(), \
-                     not_visited.reveal())
+        if debug:
+            print_ln('u: %s, v: %s, alt: %s, dv: %s, first visit: %s, '
+                     'shorter: %s, running: %s, queue size: %s, last edge: %s',
+                     u.reveal(), v.reveal(), alt.reveal(), dv[0].reveal(),
+                     not_visited.reveal(), is_shorter.reveal(),
+                     running.reveal(), Q.size.reveal(), last_edge.reveal())
     return dist
 
 def convert_graph(G):
-    edges = [None] * (2 * G.size())
-    e_index = [None] * (len(G))
-    i = 0
-    for v in G:
-        e_index[v] = i
-        for u in G[v]:
-            edges[i] = [u, G[v][u]['weight'], 0]
-            i += 1
-        edges[i-1][-1] = 1
-    return edges, e_index
-
-def test_dijkstra(G, source, oram_type=ORAM, n_loops=None, int_type=sint):
+    """ Convert a `NetworkX directed graph
+    <https://networkx.org/documentation/stable/reference/classes/digraph.html>`_
+    to the cleartext representation of what :py:func:`dijkstra` expects. """
+    G = G.copy()
     for u in G:
         for v in G[u]:
             G[u][v].setdefault('weight', 1)
+    edges = [None] * (2 * G.size())
+    e_index = [None] * (len(G))
+    i = 0
+    for v in sorted(G):
+        e_index[v] = i
+        for u in sorted(G[v]):
+            edges[i] = [u, G[v][u]['weight'], 0]
+            i += 1
+        if not G[v]:
+            edges[i] = [v, 0, 0]
+            i += 1
+        edges[i-1][-1] = 1
+    return list(filter(lambda x: x, edges)), e_index
+
+def test_dijkstra(G, source, oram_type=ORAM, n_loops=None,
+                  int_type=sint):
+    """ Securely compute Dijstra's algorithm on a cleartext graph.
+
+    :param G: directed graph with NetworkX interface
+    :param source: source node (secret or clear-text integer)
+    :param n_loops: when to stop (default: number of edges)
+    :param int_type: secret integer type (default: sint)
+
+    """
     edges_list, e_index_list = convert_graph(G)
     edges = oram_type(len(edges_list), \
                           entry_size=(log2(len(G)), log2(len(G)), 1), \
@@ -550,7 +599,7 @@ def test_stupid_dijkstra_on_cycle(n, n_loops=None):
     @for_range(n)
     def f(i):
         M[i][(i+1)%n] = ExtInt(1)
-        M[i][(i-1)%n] = ExtInt(1)
+        M[i][(i-1+n)%n] = ExtInt(1)
     if n_loops is not None:
         stop_timer(1)
         start_timer()

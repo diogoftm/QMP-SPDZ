@@ -30,7 +30,7 @@ public:
     typedef MaliciousRepMC<This> MC;
     typedef BitVec_<unsigned char> open_type;
     typedef open_type clear;
-    typedef BitVec mac_key_type;
+    typedef NoValue mac_key_type;
 
     static MC* new_mc(mac_key_type)
     {
@@ -62,6 +62,7 @@ public:
 
     typedef MaliciousRepMC<U> MC;
     typedef MC MAC_Check;
+    typedef HashMaliciousRepMC<U> DefaultMC;
 
     typedef ReplicatedInput<U> Input;
     typedef RepPrep<U> LivePrep;
@@ -70,8 +71,9 @@ public:
     typedef U whole_type;
 
     static const bool expensive_triples = true;
+    static const bool malicious = true;
 
-    static MC* new_mc(BitVec)
+    static MC* new_mc(typename super::mac_key_type)
     {
         try
         {

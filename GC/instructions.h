@@ -45,6 +45,7 @@
     X(NOTS, processor.nots(INST)) \
     X(NOTCB, processor.notcb(INST)) \
     X(ANDRS, T::andrs(PROC, EXTRA)) \
+    X(ANDRSVEC, T::andrsvec(PROC, EXTRA)) \
     X(ANDS, T::ands(PROC, EXTRA)) \
     X(ANDM, T::andm(PROC, instruction)) \
     X(ADDCB, C0 = PC1 + PC2) \
@@ -64,7 +65,7 @@
     X(STMSBI, PROC.mem_op(SIZE, MMS, PROC.S, Ci[REG1], R0)) \
     X(LDMCBI, PROC.mem_op(SIZE, PROC.C, MMC, R0, Ci[REG1])) \
     X(STMCBI, PROC.mem_op(SIZE, MMC, PROC.C, Ci[REG1], R0)) \
-    X(MOVSB, S0 = PS1) \
+    X(MOVSB, PROC.movsb(INST)) \
     X(TRANS, T::trans(PROC, IMM, EXTRA)) \
     X(BITB, PROC.random_bit(S0)) \
     X(REVEAL, T::reveal_inst(PROC, EXTRA)) \
@@ -79,14 +80,15 @@
     X(INPUTBVEC, T::inputbvec(PROC, Proc, EXTRA)) \
     X(CONVSINT, S0.load_clear(IMM, Proc.read_Ci(REG1))) \
     X(CONVCINT, C0 = Proc.read_Ci(REG1)) \
-    X(CONVCBIT, Proc.write_Ci(R0, PC1.get())) \
+    X(CONVCBIT, Proc.write_Ci(R0, Proc.sync(PC1.get()))) \
     X(CONVCINTVEC, Proc.convcintvec(instruction)) \
-    X(CONVCBITVEC, Proc.convcbitvec(instruction)) \
+    X(CONVCBITVEC, Proc.Procb.convcbitvec(instruction, Proc.get_Ci(), &Proc.P)) \
     X(CONVCBIT2S, PROC.convcbit2s(instruction)) \
     X(DABIT, Proc.dabit(INST)) \
     X(EDABIT, Proc.edabit(INST)) \
     X(SEDABIT, Proc.edabit(INST, true)) \
     X(SPLIT, Proc.split(INST)) \
+    X(CALL_ARG, ) \
 
 #define GC_INSTRUCTIONS \
     X(INPUTB, T::inputb(PROC, EXTRA)) \
@@ -100,6 +102,7 @@
     X(CONVCINT, C0 = PI1) \
     X(CONVCBIT, T::convcbit(I0, PC1, PROC)) \
     X(CONVCBIT2S, T::convcbit2s(PROC, instruction)) \
+    X(CONVCBITVEC, PROC.convcbitvec(instruction, Ci, 0)) \
     X(PRINTCHR, PROC.print_chr(IMM)) \
     X(PRINTSTR, PROC.print_str(IMM)) \
     X(PRINTFLOATPREC, PROC.print_float_prec(IMM)) \
@@ -108,6 +111,7 @@
     X(SUBINT, I0 = PI1 - PI2) \
     X(MULINT, I0 = PI1 * PI2) \
     X(DIVINT, I0 = PI1 / PI2) \
+    X(INCINT, PROC.incint(instruction)) \
     X(JMP, PROC.PC += IMM) \
     X(JMPNZ, if (I0 != 0) PROC.PC += IMM) \
     X(JMPEQZ, if (I0 == 0) PROC.PC += IMM) \
@@ -122,7 +126,7 @@
     X(LDMINTI, I0 = MII) \
     X(STMINTI, MII = I0) \
     X(PUSHINT, PROC.pushi(I0.get())) \
-    X(POPINT, long x; PROC.popi(x); I0 = x) \
+    X(POPINT, PROC.popi(I0)) \
     X(MOVINT, I0 = PI1) \
     X(BITDECINT, PROC.bitdecint(EXTRA, I0)) \
     X(LDARG, I0 = PROC.get_arg()) \
@@ -137,14 +141,18 @@
     X(PRINTINT, PROC.out << I0) \
     X(STARTGRIND, CALLGRIND_START_INSTRUMENTATION) \
     X(STOPGRIND, CALLGRIND_STOP_INSTRUMENTATION) \
-    X(RUN_TAPE, MACH->run_tapes(EXTRA)) \
+    X(RUN_TAPE, T::run_tapes(EXTRA)) \
     X(JOIN_TAPE, MACH->join_tape(R0)) \
     X(USE, ) \
     X(USE_INP, ) \
     X(NPLAYERS, I0 = Thread<T>::s().P->num_players()) \
     X(THRESHOLD, I0 = T::threshold(Thread<T>::s().P->num_players())) \
     X(PLAYERID, I0 = Thread<T>::s().P->my_num()) \
-    X(CRASH, if (I0.get()) throw crash_requested()) \
+    X(CRASH, if (I0.get() and T::actual_inputs) throw crash_requested()) \
+    X(ACTIVE, ) \
+    X(LDTN, I0 = BaseMachine::thread_num) \
+    X(CALL_TAPE, PROC.call_tape(INST, MD)) \
+    X(CALL_ARG, ) \
 
 #define INSTRUCTIONS BIT_INSTRUCTIONS GC_INSTRUCTIONS
 

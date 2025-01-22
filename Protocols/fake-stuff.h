@@ -8,10 +8,11 @@ using namespace std;
 #include "Networking/Player.h"
 #include "Processor/Data_Files.h"
 #include "Math/Setup.h"
+#include "Tools/benchmarking.h"
 
 template<class T>
 void check_share(vector<T>& Sa, typename T::clear& value,
-    typename T::value_type& mac, int N, const typename T::value_type& key);
+    typename T::mac_type& mac, int N, const typename T::mac_key_type& key);
 
 template<class T> class Share;
 
@@ -34,55 +35,99 @@ template <class U>
 void read_mac_key(const string& directory, const Names& N, U& key);
 
 template <class T>
-typename T::mac_key_type read_generate_write_mac_key(const Player& P,
+typename T::mac_key_type read_generate_write_mac_key(Player& P,
         string directory = "");
 
-template <class T>
-class Files
+template<class T>
+class KeySetup
 {
+public:
+    typename T::mac_share_type::open_type key;
+    vector<typename T::mac_share_type> key_shares;
+
+    typename T::mac_share_type get(size_t i) const
+    {
+        if (key_shares.empty())
+            return {};
+        else
+            return key_shares.at(i);
+    }
+};
+
+class FilesBase
+{
+public:
+  virtual ~FilesBase() {}
+  virtual void output_shares(word a) = 0;
+
+  void make_AES(int n, bool zero, PRNG& G);
+  void make_DES(int n, bool zero, PRNG& G);
+};
+
+template <class T>
+class Files : public FilesBase
+{
+  void open(int i, const string& filename)
+  {
+    cout << "Opening " << filename << endl;
+    outf[i].open(filename,ios::out | ios::binary);
+    file_signature<T>(key.get(i)).output(outf[i]);
+    if (outf[i].fail())
+      throw file_error(filename);
+  }
+
 public:
   ofstream* outf;
   int N;
-  typename T::mac_type key;
-  PRNG G;
-  Files(int N, const typename T::mac_type& key, const string& prep_data_prefix,
-      Dtype type, int thread_num = -1) :
+  KeySetup<T> key;
+  PRNG& G;
+  Files(int N, const KeySetup<T>& key, const string& prep_data_prefix,
+      Dtype type, PRNG& G, int thread_num = -1) :
       Files(N, key,
-          get_prep_sub_dir<T>(prep_data_prefix, N)
+          get_prep_sub_dir<T>(prep_data_prefix, N, true)
               + DataPositions::dtype_names[type] + "-" + T::type_short(),
-          thread_num)
+          G, thread_num)
   {
   }
-  Files(int N, const typename T::mac_type& key, const string& prefix,
-      int thread_num = -1) :
-      N(N), key(key)
+  Files(int N, const KeySetup<T>& key, const string& prefix,
+      PRNG& G, int thread_num = -1) :
+      N(N), key(key), G(G)
   {
+    insecure_fake(false);
     outf = new ofstream[N];
     for (int i=0; i<N; i++)
       {
         stringstream filename;
         filename << prefix << "-P" << i;
         filename << PrepBase::get_suffix(thread_num);
-        cout << "Opening " << filename.str() << endl;
-        outf[i].open(filename.str().c_str(),ios::out | ios::binary);
-        file_signature<T>().output(outf[i]);
-        if (outf[i].fail())
-          throw file_error(filename.str().c_str());
+        open(i, filename.str());
       }
-    G.ReSeed();
+  }
+  Files(const KeySetup<T>& key, const vector<string>& filenames, PRNG& G) :
+      N(filenames.size()), key(key), G(G)
+  {
+    insecure_fake(false);
+    outf = new ofstream[N];
+    for (int i = 0; i < N; i++)
+      open(i, filenames[i]);
   }
   ~Files()
   {
     delete[] outf;
   }
-  template<class U = T>
-  void output_shares(const typename U::clear& a)
+
+  void output_shares(word a)
   {
-    output_shares<T>(a, key);
+    output_shares(typename T::open_type(a));
   }
-  template<class U>
-  void output_shares(const typename U::clear& a,
-      const typename U::mac_type& key)
+  template<class U = T>
+  void output_shares(const typename U::open_type& a)
+  {
+    output_shares<T>(a, key.key);
+  }
+  template<class U, class V>
+  void output_shares(const typename U::open_type& a,
+      const V& key)
   {
     vector<U> Sa(N);
     make_share(Sa,a,N,key,G);

@@ -8,8 +8,6 @@ if 'trunc_pr' in program.args:
 if 'split' in program.args:
     program.use_split(3)
 
-program.options.cisc = True
-
 try:
     n_threads = int(program.args[2])
 except:
@@ -26,11 +24,13 @@ exec(subprocess.check_output(['Scripts/process-tf.py', program.args[1]]))
 
 opt = ml.Optimizer()
 opt.set_layers_with_inputs(layers)
-layers[0].X.input_from(0)
+layers[0].X.input_from(0, binary=True)
 for layer in layers:
-    layer.input_from(0, raw='raw' in program.args)
+    layer.input_from(0, binary=True)
 
 sint(0).reveal().store_in_mem(0)
+
+opt.time_layers = 'time_layers' in program.args
 
 start_timer(1)
 opt.forward(1, keep_intermediate=False)

@@ -19,7 +19,7 @@ YaoPlayer::YaoPlayer(int argc, const char** argv)
 			0, // Required?
 			0, // Number of args expected.
 			0, // Delimiter if expecting multiple args.
-			"Evaluate only after garbling (default only with multi-threading).", // Help description.
+			"Evaluate only after garbling (very limited functionality).", // Help description.
 			"-O", // Flag token.
 			"--oneshot" // Flag token.
 	);
@@ -32,8 +32,17 @@ YaoPlayer::YaoPlayer(int argc, const char** argv)
 			"-t", // Flag token.
 			"--threshold" // Flag token.
 	);
+	opt.add(
+	        "100000", // Default.
+	        0, // Required?
+	        1, // Number of args expected.
+	        0, // Delimiter if expecting multiple args.
+	        "Size of circuit batches (default: 100000)", // Help description.
+	        "-b", // Flag token.
+	        "--batch-size" // Flag token.
+	);
 	auto& online_opts = OnlineOptions::singleton;
-	online_opts = {opt, argc, argv, false_type()};
+	online_opts = {opt, argc, argv, false};
 	NetworkOptionsWithNumber network_opts(opt, argc, argv, 2, false);
 	online_opts.finalize(opt, argc, argv);
 
@@ -41,6 +50,7 @@ YaoPlayer::YaoPlayer(int argc, const char** argv)
 	int threshold;
 	bool continuous = not opt.get("-O")->isSet;
 	opt.get("-t")->getInt(threshold);
+	opt.get("-b")->getInt(online_opts.batch_size);
 	progname = online_opts.progname;
 
 	GC::ThreadMasterBase* master;

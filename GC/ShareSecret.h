@@ -46,6 +46,9 @@ public:
 
     static const bool is_real = true;
     static const bool actual_inputs = true;
+    static const bool symmetric = true;
+
+    static bool real_shares(const Player&) { return true; }
 
     static ShareThread<U>& get_party()
     {
@@ -63,6 +66,7 @@ public:
     static void ands(Processor<U>& processor, const vector<int>& args)
     { and_(processor, args, false); }
     static void and_(Processor<U>& processor, const vector<int>& args, bool repeat);
+    static void andrsvec(Processor<U>& processor, const vector<int>& args);
     static void xors(Processor<U>& processor, const vector<int>& args);
     static void inputb(Processor<U>& processor, const vector<int>& args)
     { inputb(processor, processor, args); }
@@ -82,6 +86,9 @@ public:
     { processor.andm(instruction); }
 
     static BitVec get_mask(int n) { return n >= 64 ? -1 : ((1L << n) - 1); }
+
+    static void run_tapes(const vector<int>& args)
+    { Thread<U>::s().master.machine.run_tapes(args); }
 
     void check_length(int n, const Integer& x);
 
@@ -112,10 +119,13 @@ public:
 
     typedef BitVec clear;
     typedef BitVec open_type;
-    typedef BitVec mac_type;
-    typedef BitVec mac_key_type;
+    typedef NoShare mac_type;
+    typedef NoValue mac_key_type;
+    typedef NoShare mac_share_type;
 
     typedef NoShare bit_type;
+
+    typedef void DefaultMC;
 
     static const int N_BITS = clear::N_BITS;
 
@@ -123,6 +133,7 @@ public:
     static const bool variable_players = false;
     static const bool needs_ot = false;
     static const bool has_mac = false;
+    static const bool randoms_for_opens = false;
 
     static string type_string() { return "replicated secret"; }
     static string phase_name() { return "Replicated computation"; }
@@ -146,6 +157,22 @@ public:
     {
     }
 
+    static GC::NoValue get_mac_key()
+    {
+        throw runtime_error("no MAC");
+    }
+
+    template<class T>
+    static string proto_fake_opts()
+    {
+        return T::fake_opts();
+    }
+
+    static size_t maximum_size()
+    {
+        return default_length;
+    }
+
     RepSecretBase()
     {
     }
@@ -155,11 +182,11 @@ public:
     {
     }
 
-    void bitcom(Memory<U>& S, const vector<int>& regs);
-    void bitdec(Memory<U>& S, const vector<int>& regs) const;
+    void bitcom(StackedVector<U>& S, const vector<int>& regs);
+    void bitdec(StackedVector<U>& S, const vector<int>& regs) const;
 
     void xor_(int n, const This& x, const This& y)
-    { *this = x ^ y; (void)n; }
+    { *this = (x ^ y).mask(n); }
 
     This operator&(const Clear& other)
     { return super::operator&(BitVec(other)); }
@@ -183,7 +210,7 @@ public:
     typedef ReplicatedBase Protocol;
 
     static ReplicatedSecret constant(const typename super::clear& value,
-        int my_num, typename super::mac_key_type, int = -1)
+        int my_num, typename super::mac_key_type = {}, int = -1)
     {
       ReplicatedSecret res;
       if (my_num < 2)
@@ -213,7 +240,7 @@ public:
     typedef ReplicatedMC<This> MC;
     typedef BitVec_<unsigned char> open_type;
     typedef open_type clear;
-    typedef BitVec mac_key_type;
+    typedef NoValue mac_key_type;
 
     static MC* new_mc(mac_key_type)
     {
@@ -253,6 +280,7 @@ public:
     typedef SemiHonestRepSecret whole_type;
 
     static const bool expensive_triples = false;
+    static const bool malicious = false;
 
     static MC* new_mc(mac_key_type) { return new MC; }
 

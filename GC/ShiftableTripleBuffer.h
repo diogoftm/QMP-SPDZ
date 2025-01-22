@@ -32,6 +32,8 @@ public:
     array<T, 3> get_triple_no_count(int n_bits)
     {
         int max_n_bits = T::default_length;
+        if (n_bits == -1)
+            n_bits = max_n_bits;
         assert(n_bits <= max_n_bits);
         assert(n_bits > 0);
         array<T, 3> res;

@@ -3,6 +3,9 @@
  *
  */
 
+#ifndef PROTOCOLS_REPRINGONLYEDABITPREP_HPP_
+#define PROTOCOLS_REPRINGONLYEDABITPREP_HPP_
+
 #include "RepRingOnlyEdabitPrep.h"
 #include "GC/BitAdder.h"
 #include "Processor/Instruction.h"
@@ -12,21 +15,22 @@ void RepRingOnlyEdabitPrep<T>::buffer_edabits(int n_bits, ThreadQueues*)
 {
     assert(this->proc);
     int dl = T::bit_type::default_length;
-    int buffer_size = DIV_CEIL(this->buffer_size, dl) * dl;
-    vector<T> wholes;
-    wholes.resize(buffer_size);
+    int buffer_size = DIV_CEIL(BaseMachine::edabit_batch_size<T>(n_bits, this->buffer_size), dl) * dl;
+    StackedVector<T> swholes;
+    swholes.resize(buffer_size);
     Instruction inst;
     inst.r[0] = 0;
     inst.n = n_bits;
     inst.size = buffer_size;
-    this->proc->protocol.randoms_inst(wholes, inst);
+    this->proc->protocol.randoms_inst(swholes, inst);
+    vector<T> wholes(swholes.begin(), swholes.end());
 
     auto& P = this->proc->P;
     vector<int> regs(P.num_players() * n_bits);
     for (size_t i = 0; i < regs.size(); i++)
         regs[i] = i * buffer_size / dl;
     typedef typename T::bit_type bt;
-    vector<bt> bits(n_bits * P.num_players() * buffer_size);
+    StackedVector<bt> bits(n_bits * P.num_players() * buffer_size);
     T::split(bits, regs, n_bits, wholes.data(), wholes.size(),
             *GC::ShareThread < bt > ::s().protocol);
 
@@ -49,5 +53,7 @@ void RepRingOnlyEdabitPrep<T>::buffer_edabits(int n_bits, ThreadQueues*)
     SubProcessor<bt> bit_proc(party.MC->get_part_MC(), this->proc->bit_prep, P);
     bit_adder.multi_add(sums, summands, 0, buffer_size / dl, bit_proc, dl, 0);
 
-    this->push_edabits(this->edabits[{false, n_bits}], wholes, sums, buffer_size);
+    this->push_edabits(this->edabits[{false, n_bits}], wholes, sums);
 }
+
+#endif

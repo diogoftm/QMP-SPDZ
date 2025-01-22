@@ -82,10 +82,24 @@ void Instruction::parse(istream& s, int pos)
 #undef X
     default:
         ostringstream os;
-        os << "Code not defined for instruction " << showbase << hex << opcode << dec << endl;
-        os << "This virtual machine executes binary circuits only." << endl;
-        os << "Use 'compile.py -B'." << endl;
-        throw Invalid_Instruction(os.str());
+        os << "Code not defined for instruction ";
+        bool known = true;
+        switch (opcode)
+        {
+#define X(NAME, PRE, CODE) case NAME: os << #NAME; break;
+        ALL_INSTRUCTIONS
+#undef X
+        default:
+            known = false;
+            os << showbase << hex << opcode << dec;
+        }
+        os << endl;
+        if (known)
+        {
+            os << "This virtual machine executes binary circuits only. ";
+            os << "Use 'compile.py -B'.";
+        }
+        exit_error(os.str());
         break;
     }
 }

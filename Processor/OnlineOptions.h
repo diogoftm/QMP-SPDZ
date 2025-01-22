@@ -12,6 +12,8 @@
 
 class OnlineOptions
 {
+    void finalize_with_error(ez::ezOptionParser& opt);
+
 public:
     static OnlineOptions singleton;
 
@@ -26,24 +28,35 @@ public:
     bool bits_from_squares;
     bool direct;
     int bucket_size;
+    int security_parameter;
+    bool use_security_parameter;
     std::string cmd_private_input_file;
     std::string cmd_private_output_file;
     bool verbose;
     bool file_prep_per_thread;
     int trunc_error;
+    int opening_sum, max_broadcast;
+    bool receive_threads;
+    std::string disk_memory;
+    vector<long> args;
+    vector<string> options;
+    string executable;
 
     OnlineOptions();
     OnlineOptions(ez::ezOptionParser& opt, int argc, const char** argv,
-            false_type);
+            bool security);
     OnlineOptions(ez::ezOptionParser& opt, int argc, const char** argv,
             int default_batch_size = 0, bool default_live_prep = true,
-            bool variable_prime_length = false);
+            bool variable_prime_length = false, bool security = true);
     template<class T>
     OnlineOptions(ez::ezOptionParser& opt, int argc, const char** argv, T,
             bool default_live_prep = true);
+    template<class T>
+    OnlineOptions(T);
     ~OnlineOptions() {}
 
-    void finalize(ez::ezOptionParser& opt, int argc, const char** argv);
+    void finalize(ez::ezOptionParser& opt, int argc, const char** argv,
+            bool networking = true);
 
     void set_trunc_error(ez::ezOptionParser& opt);
 
@@ -57,6 +70,11 @@ public:
         if (prime)
             lgp = numBits(prime);
         return get_prep_sub_dir<T>(PREP_DIR, nplayers, lgp);
+    }
+
+    bool has_option(const string& option)
+    {
+        return find(options.begin(), options.end(), option) != options.end();
     }
 };
 

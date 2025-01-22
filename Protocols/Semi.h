@@ -6,20 +6,20 @@
 #ifndef PROTOCOLS_SEMI_H_
 #define PROTOCOLS_SEMI_H_
 
-#include "SPDZ.h"
+#include "Beaver.h"
 #include "Processor/TruncPrTuple.h"
 
 /**
  * Dishonest-majority protocol for computation modulo a power of two
  */
 template<class T>
-class Semi : public SPDZ<T>
+class Semi : public Beaver<T>
 {
     SeededPRNG G;
 
 public:
     Semi(Player& P) :
-            SPDZ<T>(P)
+            Beaver<T>(P)
     {
     }
 
@@ -59,7 +59,20 @@ public:
         for (auto& info : infos)
         {
             if (not info.big_gap())
-                throw runtime_error("bit length too large");
+            {
+                if (not T::clear::invertible)
+                {
+                    int min_size = 64 * DIV_CEIL(
+                            info.k + OnlineOptions::singleton.trunc_error, 64);
+                    throw runtime_error(
+                            "Bit length too large for trunc_pr. "
+                                    "Disable it or increase the ring size "
+                                    "during compilation using '-R "
+                                    + to_string(min_size) + "'.");
+                }
+                else
+                    throw runtime_error("bit length too large");
+            }
             if (this->P.my_num())
                 for (int i = 0; i < size; i++)
                     proc.get_S_ref(info.dest_base + i) = -open_type(
@@ -74,7 +87,7 @@ public:
 
     void buffer_random()
     {
-        for (int i = 0; i < OnlineOptions::singleton.batch_size; i++)
+        for (int i = 0; i < this->buffer_size; i++)
             this->random.push_back(G.get<T>());
     }
 };

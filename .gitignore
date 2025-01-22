@@ -6,6 +6,7 @@ Prep-Data/*
 logs/*
 Language-Definition/main.pdf
 keys/*
+ssl/*
 
 # Personal CONFIG file #
 ##############################
@@ -49,6 +50,7 @@ callgrind.out.*
 Programs/Bytecode/*
 Programs/Schedules/*
 Programs/Public-Input/*
+Programs/Functions
 *.com
 *.class
 *.dll
@@ -116,3 +118,10 @@ Thumbs.db
 
 # Sphinx build
 _build/
+
+# environment
+.env
+
+# temp doc files
+doc/readme.md
+doc/xml

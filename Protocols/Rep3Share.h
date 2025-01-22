@@ -9,11 +9,13 @@
 #include "Math/FixedVec.h"
 #include "Math/Integer.h"
 #include "Protocols/Replicated.h"
+#include "Protocols/Rep3Shuffler.h"
 #include "GC/ShareSecret.h"
 #include "ShareInterface.h"
 #include "Processor/Instruction.h"
 
 template<class T> class ReplicatedPrep;
+template<class T> class SemiRep3Prep;
 template<class T> class ReplicatedRingPrep;
 template<class T> class ReplicatedPO;
 template<class T> class SpecificPrivateOutput;
@@ -27,8 +29,7 @@ class RepShare : public FixedVec<T, L>, public ShareInterface
 public:
     typedef T clear;
     typedef T open_type;
-    typedef T mac_type;
-    typedef T mac_key_type;
+    typedef This share_type;
 
     const static bool needs_ot = false;
     const static bool dishonest_majority = false;
@@ -73,7 +74,7 @@ public:
     template<class U>
     static void shrsi(SubProcessor<U>& proc, const Instruction& inst)
     {
-        shrsi(proc, inst, T::invertible);
+        shrsi(proc, inst, T::prime_field);
     }
 
     template<class U>
@@ -111,7 +112,8 @@ public:
     typedef ReplicatedInput<Rep3Share> Input;
     typedef ReplicatedPO<This> PO;
     typedef SpecificPrivateOutput<This> PrivateOutput;
-    typedef ReplicatedPrep<Rep3Share> LivePrep;
+    typedef typename conditional<T::characteristic_two,
+            ReplicatedPrep<Rep3Share>, SemiRep3Prep<Rep3Share>>::type LivePrep;
     typedef ReplicatedRingPrep<Rep3Share> TriplePrep;
     typedef Rep3Share Honest;
 
@@ -122,8 +124,9 @@ public:
     const static bool needs_ot = false;
     const static bool dishonest_majority = false;
     const static bool expensive = false;
-    const static bool variable_players = false;
+    static false_type variable_players;
     static const bool has_trunc_pr = true;
+    static const bool malicious = false;
 
     static string type_short()
     {
@@ -138,9 +141,10 @@ public:
         return T::type_char();
     }
 
-    static Rep3Share constant(T value, int my_num, const T& alphai = {})
+    static Rep3Share constant(T value, int my_num,
+            typename super::mac_key_type = {})
     {
-        return Rep3Share(value, my_num, alphai);
+        return Rep3Share(value, my_num);
     }
 
     Rep3Share()
@@ -170,5 +174,8 @@ public:
         return a.lazy_add(b);
     }
 };
+
+template<class T>
+false_type Rep3Share<T>::variable_players;
 
 #endif /* PROTOCOLS_REP3SHARE_H_ */

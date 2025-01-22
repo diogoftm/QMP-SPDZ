@@ -1,5 +1,4 @@
 #include "Ciphertext.h"
-#include "PPData.h"
 #include "P2Data.h"
 #include "Tools/Exceptions.h"
 
@@ -28,6 +27,12 @@ word check_pk_id(word a, word b)
     cout << a << " vs " << b << endl;
     throw runtime_error("public keys of ciphertext operands don't match");
   }
+}
+
+
+void Ciphertext::Scale()
+{
+  Scale(params->get_plaintext_modulus());
 }
 
 
@@ -62,20 +67,15 @@ void mul(Ciphertext& ans,const Ciphertext& c0,const Ciphertext& c1,
   cc0.Scale(pk.p()); cc1.Scale(pk.p());
   
   // Now do the multiply
-  Rq_Element d0,d1,d2;
-
-  mul(d0,cc0.cc0,cc1.cc0);
-  mul(d1,cc0.cc0,cc1.cc1);
-  mul(d2,cc0.cc1,cc1.cc0);
-  add(d1,d1,d2);
-  mul(d2,cc0.cc1,cc1.cc1); 
+  auto d0 = cc0.cc0 * cc1.cc0;
+  auto d1 = cc0.cc0 * cc1.cc1 + cc0.cc1 * cc1.cc0;
+  auto d2 = cc0.cc1 * cc1.cc1;
   d2.negate(); 
 
   // Now do the switch key
   d2.raise_level();
-  Rq_Element t;
   d0.mul_by_p1();
-  mul(t,pk.bs(),d2);
+  auto t =  pk.bs()* d2;
   add(d0,d0,t);
 
   d1.mul_by_p1();
@@ -108,16 +108,34 @@ void Ciphertext::mul(const Ciphertext& c, const Rq_Element& ra)
   ::mul(cc1,ra,c.cc1);
 }
 
-void Ciphertext::add(octetStream& os)
+void Ciphertext::add(octetStream& os, int)
 {
   Ciphertext tmp(*params);
   tmp.unpack(os);
   *this += tmp;
 }
 
+void Ciphertext::rerandomize(const FHE_PK& pk)
+{
+  Rq_Element tmp(*params);
+  SeededPRNG G;
+  vector<FFT_Data::S> r(params->FFTD()[0].phi_m());
+  bigint p = pk.p();
+  assert(p != 0);
+  for (auto& x : r)
+    {
+      G.get(x, params->p0().numBits() - p.numBits() - 1);
+      x *= p;
+    }
+  tmp.from(r, 0);
+  Scale();
+  cc0 += tmp;
+  auto zero = pk.encrypt(*params);
+  zero.Scale(pk.p());
+  *this += zero;
+}
+
 
 template void mul(Ciphertext& ans,const Plaintext<gfp,FFT_Data,bigint>& a,const Ciphertext& c);
-template void mul(Ciphertext& ans,const Plaintext<gfp,PPData,bigint>& a,const Ciphertext& c);
-template void mul(Ciphertext& ans,const Plaintext<gf2n_short,P2Data,int>& a,const Ciphertext& c);
-
-
+template void mul(Ciphertext& ans, const Plaintext<gf2n_short, P2Data, int>& a,
+        const Ciphertext& c);

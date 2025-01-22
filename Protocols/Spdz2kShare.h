@@ -18,6 +18,7 @@
 
 template<int K, int S> class Spdz2kMultiplier;
 template<class T> class Spdz2kTripleGenerator;
+template<class T> class SPDZ2k;
 
 namespace GC
 {
@@ -27,6 +28,8 @@ template<int S> class TinySecret;
 template<int K, int S>
 class Spdz2kShare : public Share<Z2<K + S>>
 {
+    typedef Spdz2kShare This;
+
 public:
     typedef Z2<K + S> tmp_type;
     typedef Share<tmp_type> super;
@@ -38,6 +41,8 @@ public:
     typedef Z2<K + S> open_type;
 
     typedef Spdz2kShare prep_type;
+    typedef Spdz2kShare<K + 2, S> bit_prep_type;
+    typedef Spdz2kShare<K + S, S> prep_check_type;
     typedef Spdz2kShare input_check_type;
     typedef Spdz2kMultiplier<K, S> Multiplier;
     typedef Spdz2kTripleGenerator<Spdz2kShare> TripleGenerator;
@@ -45,25 +50,30 @@ public:
     typedef Z2kRectangle<TAU(K, S), K + S> Rectangle;
 
     typedef MAC_Check_Z2k<Z2<K + S>, Z2<S>, open_type, Spdz2kShare> MAC_Check;
-    typedef MAC_Check Direct_MC;
+    typedef Direct_MAC_Check_Z2k<Spdz2kShare> Direct_MC;
     typedef ::Input<Spdz2kShare> Input;
     typedef ::PrivateOutput<Spdz2kShare> PrivateOutput;
-    typedef SPDZ<Spdz2kShare> Protocol;
+    typedef Beaver<This> BasicProtocol;
+    typedef DummyMatrixPrep<This> MatrixPrep;
+    typedef SPDZ2k<Spdz2kShare> Protocol;
     typedef Spdz2kPrep<Spdz2kShare> LivePrep;
 
 #ifndef NO_MIXED_CIRCUITS
 #ifdef SPDZ2K_BIT
     typedef GC::TinySecret<S> bit_type;
-#else
-    typedef GC::TinierSecret<gf2n_short> bit_type;
 #endif
 #endif
 
     const static int k = K;
     const static int s = S;
 
+    const static bool randoms_for_opens = true;
+
     static string type_string() { return "SPDZ2^(" + to_string(K) + "+" + to_string(S) + ")"; }
     static string type_short() { return "Z" + to_string(K) + "," + to_string(S); }
+
+    template<class T>
+    static string proto_fake_opts() { return " -Z " + to_string(K) + " -S " + to_string(S); }
 
     Spdz2kShare() {}
     template<class T, class V>

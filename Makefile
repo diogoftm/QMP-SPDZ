@@ -7,12 +7,12 @@ TOOLS = $(patsubst %.cpp,%.o,$(wildcard Tools/*.cpp))
 
 NETWORK = $(patsubst %.cpp,%.o,$(wildcard Networking/*.cpp))
 
-PROCESSOR = $(patsubst %.cpp,%.o,$(wildcard Processor/*.cpp))
+PROCESSOR = $(patsubst %.cpp,%.o,$(wildcard Processor/*.cpp)) Protocols/ShamirOptions.o
 
 FHEOBJS = $(patsubst %.cpp,%.o,$(wildcard FHEOffline/*.cpp FHE/*.cpp)) Protocols/CowGearOptions.o
 
 GC = $(patsubst %.cpp,%.o,$(wildcard GC/*.cpp)) $(PROCESSOR)
-GC_SEMI = GC/SemiSecret.o GC/SemiPrep.o GC/square64.o
+GC_SEMI = GC/SemiPrep.o GC/square64.o GC/Semi.o
 
 OT = $(patsubst %.cpp,%.o,$(wildcard OT/*.cpp))
 OT_EXE = ot.x ot-offline.x
@@ -22,7 +22,7 @@ COMPLETE = $(COMMON) $(PROCESSOR) $(FHEOFFLINE) $(TINYOTOFFLINE) $(GC) $(OT)
 YAO = $(patsubst %.cpp,%.o,$(wildcard Yao/*.cpp)) $(OT) BMR/Key.o
 BMR = $(patsubst %.cpp,%.o,$(wildcard BMR/*.cpp BMR/network/*.cpp))
 MINI_OT = OT/OTTripleSetup.o OT/BaseOT.o $(LIBQOKDOT)
-VMOBJS = $(PROCESSOR) $(COMMONOBJS) GC/square64.o GC/Instruction.o OT/OTTripleSetup.o OT/BaseOT.o $(LIBQOKDOT)
+VMOBJS = $(PROCESSOR) $(COMMONOBJS) $(LIBQOKDOT) GC/square64.o GC/Instruction.o OT/OTTripleSetup.o OT/BaseOT.o
 VM = $(MINI_OT) $(SHAREDLIB)
 COMMON = $(SHAREDLIB)
 TINIER =  Machines/Tinier.o $(OT)
@@ -33,31 +33,34 @@ LIB = libSPDZ.a
 SHAREDLIB = libSPDZ.so
 FHEOFFLINE = libFHE.so
 LIBRELEASE = librelease.a
-
-ifeq ($(AVX_OT), 0)
-VM += ECDSA/P256Element.o
-OT += ECDSA/P256Element.o
-MINI_OT += ECDSA/P256Element.o
-else
 LIBQOKDOT = OTKeys/OTKeys/lib/libuirotk.a
+STATIC_OTE = local/lib/liblibOTe.a
+SHARED_OTE = local/lib/liblibOTe.so
+
+ifeq ($(USE_KOS), 0)
+ifeq ($(USE_SHARED_OTE), 1)
+OT += $(SHARED_OTE) local/lib/libcryptoTools.so
+else
+OT += $(STATIC_OTE) local/lib/libcryptoTools.a
+endif
 endif
 
 # used for dependency generation
-OBJS = $(BMR) $(FHEOBJS) $(TINYOTOFFLINE) $(YAO) $(COMPLETE) $(patsubst %.cpp,%.o,$(wildcard Machines/*.cpp Utils/*.cpp))
+OBJS = $(patsubst %.cpp,%.o,$(wildcard */*.cpp */*/*.cpp)) $(STATIC_OTE)
 DEPS := $(wildcard */*.d */*/*.d)
 
 # never delete
-.SECONDARY: $(OBJS) $(patsubst %.cpp,%.o,$(wildcard */*.cpp))
+.SECONDARY: $(OBJS)
 
 
-all: arithmetic binary gen_input online offline externalIO bmr ecdsa
+all: arithmetic binary gen_input online offline externalIO bmr ecdsa export
 vm: arithmetic binary
 
 .PHONY: doc
 doc:
 	cd doc; $(MAKE) html
 
-arithmetic: rep-ring rep-field shamir semi2k-party.x semi-party.x mascot sy
+arithmetic: rep-ring rep-field shamir semi2k-party.x semi-party.x mascot sy dealer-ring-party.x
 binary: rep-bin yao semi-bin-party.x tinier-party.x tiny-party.x ccd-party.x malicious-ccd-party.x real-bmr
 
 all: overdrive she-offline
@@ -66,10 +69,14 @@ arithmetic: semi-he gear
 -include $(DEPS)
 include $(wildcard *.d static/*.d)
 
+$(OBJS): CONFIG CONFIG.mine
+CONFIG.mine:
+	touch CONFIG.mine
+
 %.o: %.cpp
 	$(CXX) -o $@ $< $(CFLAGS) -MMD -MP -c
 
-online: Fake-Offline.x Server.x Player-Online.x Check-Offline.x emulate.x
+online: Fake-Offline.x Server.x Player-Online.x Check-Offline.x emulate.x mascot-party.x
 
 offline: $(OT_EXE) Check-Offline.x mascot-offline.x cowgear-offline.x mal-shamir-offline.x
 
@@ -79,7 +86,7 @@ externalIO: bankers-bonus-client.x
 
 bmr: bmr-program-party.x bmr-program-tparty.x
 
-real-bmr: $(patsubst Machines/%.cpp,%.x,$(wildcard Machines/*-bmr-party.cpp))
+real-bmr: $(patsubst Machines/BMR/%.cpp,%.x,$(wildcard Machines/BMR/*-bmr-party.cpp))
 
 yao: yao-party.x
 
@@ -101,16 +108,17 @@ spdz2k: spdz2k-party.x ot-offline.x Check-Offline-Z2k.x galois-degree.x Fake-Off
 mascot: mascot-party.x spdz2k mama-party.x
 
 ifeq ($(OS), Darwin)
-tldr: mac-setup
+setup: mac-setup
 else
-tldr: mpir linux-machine-setup
+setup: maybe-boost linux-machine-setup
 endif
 
-tldr:
+tldr: setup
 	$(MAKE) mascot-party.x
+	mkdir Player-Data 2> /dev/null; true
 
-ifeq ($(MACHINE), aarch64)
-tldr: simde/simde
+ifeq ($(ARM), 1)
+$(patsubst %.cpp,%.o,$(wildcard */*.cpp */*/*.cpp)): deps/simde/simde deps/sse2neon/sse2neon.h
 endif
 
 shamir: shamir-party.x malicious-shamir-party.x atlas-party.x galois-degree.x
@@ -123,7 +131,7 @@ ecdsa-static: static-dir $(patsubst ECDSA/%.cpp,static/%.x,$(wildcard ECDSA/*-ec
 $(LIBRELEASE): Protocols/MalRepRingOptions.o $(PROCESSOR) $(COMMONOBJS) $(TINIER) $(GC)
 	$(AR) -csr $@ $^
 
-CFLAGS += -fPIC -no-pie
+CFLAGS += -fPIC
 LDLIBS += -Wl,-rpath -Wl,$(CURDIR) -lcurl -ljansson -lcrypto -lssl -luuid -lexplain
 
 $(SHAREDLIB): $(PROCESSOR) $(COMMONOBJS) GC/square64.o GC/Instruction.o
@@ -132,8 +140,13 @@ $(SHAREDLIB): $(PROCESSOR) $(COMMONOBJS) GC/square64.o GC/Instruction.o
 $(FHEOFFLINE): $(FHEOBJS) $(SHAREDLIB)
 	$(CXX) $(CFLAGS) -shared -o $@ $^ $(LDLIBS)
 
-static/%.x: Machines/%.o $(LIBRELEASE) $(LIBQOKDOT)
-	$(CXX) $(CFLAGS) -o $@ $^ -Wl,-Map=$<.map -Wl,-Bstatic -static-libgcc -static-libstdc++  $(LIBRELEASE) $(LIBQOKDOT) $(BOOST) $(LDLIBS) -Wl,-Bdynamic -ldl
+static/%.x: Machines/%.o $(LIBRELEASE) $(LIBQOKDOT) local/lib/libcryptoTools.a local/lib/liblibOTe.a
+	$(MAKE) static-dir
+	$(CXX) -o $@ $(CFLAGS) $^ -Wl,-Map=$<.map -Wl,-Bstatic -static-libgcc -static-libstdc++ $(LIBRELEASE) -llibOTe -lcryptoTools $(LIBQOKDOT) $(BOOST) $(LDLIBS) -Wl,-Bdynamic -ldl
+
+static/%.x: Machines/BMR/%.o $(LIBRELEASE) $(LIBQOKDOT) local/lib/libcryptoTools.a local/lib/liblibOTe.a
+	$(MAKE) static-dir
+	$(CXX) -o $@ $(CFLAGS) $^ -Wl,-Map=$<.map -Wl,-Bstatic -static-libgcc -static-libstdc++ $(LIBRELEASE) -llibOTe -lcryptoTools $(LIBQOKDOT) $(BOOST) $(LDLIBS) -Wl,-Bdynamic -ldl
 
 static/%.x: ECDSA/%.o ECDSA/P256Element.o $(VMOBJS) $(OT) $(LIBQOKDOT)
 	$(CXX) $(CFLAGS) -o $@ $^ -Wl,-Map=$<.map -Wl,-Bstatic -static-libgcc -static-libstdc++ $(BOOST) $(LDLIBS) -Wl,-Bdynamic -ldl
@@ -141,7 +154,17 @@ static/%.x: ECDSA/%.o ECDSA/P256Element.o $(VMOBJS) $(OT) $(LIBQOKDOT)
 static-dir:
 	@ mkdir static 2> /dev/null; true
 
-static-release: static-dir $(patsubst Machines/%.cpp, static/%.x, $(wildcard Machines/*-party.cpp)) static/emulate.x
+static-release: static-dir $(patsubst Machines/%.cpp, static/%.x, $(wildcard Machines/*-party.cpp))  $(patsubst Machines/BMR/%.cpp, static/%.x, $(wildcard Machines/BMR/*-party.cpp)) static/emulate.x
+
+EXPORT_VM = $(patsubst %.cpp, %.o, $(wildcard Machines/export-*.cpp))
+.SECONDARY: $(EXPORT_VM)
+
+export-trunc.x: Machines/export-ring.o
+export-sort.x: Machines/export-ring.o
+export-a2b.x: GC/AtlasSecret.o Machines/SPDZ.o Machines/SPDZ2^64+64.o $(GC_SEMI) $(TINIER) $(EXPORT_VM) GC/Rep4Secret.o GC/Rep4Prep.o $(FHEOFFLINE)
+export-b2a.x: Machines/export-ring.o
+
+export: $(patsubst Utils/%.cpp, %.x, $(wildcard Utils/export*.cpp))
 
 Fake-ECDSA.x: ECDSA/Fake-ECDSA.cpp ECDSA/P256Element.o $(COMMON) Processor/PrepBase.o
 	$(CXX) -o $@ $^ $(CFLAGS) $(LDLIBS)
@@ -153,16 +176,16 @@ ot-offline.x: $(OT) $(LIBQOKDOT) Machines/TripleMachine.o
 
 gc-emulate.x: $(VM) GC/FakeSecret.o GC/square64.o
 
-bmr-%.x: $(BMR) $(VM) Machines/bmr-%.cpp $(LIBQOKDOT)
+bmr-%.x: $(BMR) $(VM) Machines/BMR/bmr-%.cpp $(LIBQOKDOT)
 	$(CXX) -o $@ $(CFLAGS) $^ $(BOOST) $(LDLIBS)
 
-%-bmr-party.x: Machines/%-bmr-party.o $(BMR) $(SHAREDLIB) $(MINI_OT)
+%-bmr-party.x: Machines/BMR/%-bmr-party.o $(BMR) $(SHAREDLIB) $(MINI_OT)
 	$(CXX) -o $@ $(CFLAGS) $^ $(BOOST) $(LDLIBS)
 
 bmr-clean:
 	-rm BMR/*.o BMR/*/*.o GC/*.o
 
-bankers-bonus-client.x: ExternalIO/bankers-bonus-client.cpp $(COMMON)
+bankers-bonus-client.x: ExternalIO/bankers-bonus-client.o $(COMMON)
 	$(CXX) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
 simple-offline.x: $(FHEOFFLINE)
@@ -192,7 +215,7 @@ Fake-Offline.x: Utils/Fake-Offline.o $(VM)
 	$(CXX) -o $@ $(CFLAGS) $^ $(LDLIBS)
 
 %.x: Machines/%.o $(MINI_OT) $(SHAREDLIB)
-	$(CXX) -o $@ $(CFLAGS) $^ $(LDLIBS)
+	$(CXX) -o $@ $(CFLAGS) $^ $(LDLIBS) $(SHAREDLIB)
 
 %-ecdsa-party.x: ECDSA/%-ecdsa-party.o ECDSA/P256Element.o $(VM)
 	$(CXX) -o $@ $(CFLAGS) $^ $(LDLIBS)
@@ -203,13 +226,13 @@ replicated-field-party.x: GC/square64.o
 brain-party.x: GC/square64.o
 malicious-rep-bin-party.x: GC/square64.o
 ps-rep-bin-party.x: GC/PostSacriBin.o
-semi-bin-party.x: $(OT) GC/SemiSecret.o GC/SemiPrep.o GC/square64.o
+semi-bin-party.x: $(OT) $(GC_SEMI)
 tiny-party.x: $(OT)
 tinier-party.x: $(OT)
 spdz2k-party.x: $(TINIER) $(patsubst %.cpp,%.o,$(wildcard Machines/SPDZ2*.cpp))
 static/spdz2k-party.x: $(patsubst %.cpp,%.o,$(wildcard Machines/SPDZ2*.cpp))
-semi-party.x: $(OT) GC/SemiSecret.o GC/SemiPrep.o GC/square64.o
-semi2k-party.x: $(OT) GC/SemiSecret.o GC/SemiPrep.o GC/square64.o
+semi-party.x: $(OT)  $(GC_SEMI)
+semi2k-party.x: $(OT) $(GC_SEMI)
 hemi-party.x: $(FHEOFFLINE) $(GC_SEMI) $(OT)
 temi-party.x: $(FHEOFFLINE) $(GC_SEMI) $(OT)
 soho-party.x: $(FHEOFFLINE) $(GC_SEMI) $(OT)
@@ -232,19 +255,25 @@ mama-party.x: $(TINIER)
 ps-rep-ring-party.x: Protocols/MalRepRingOptions.o
 malicious-rep-ring-party.x: Protocols/MalRepRingOptions.o
 sy-rep-ring-party.x: Protocols/MalRepRingOptions.o
-rep4-ring-party.x: GC/Rep4Secret.o
+rep4-ring-party.x: GC/Rep4Secret.o GC/Rep4Prep.o
 no-party.x: Protocols/ShareInterface.o
-semi-ecdsa-party.x: $(OT) $(LIBQOKDOT) GC/SemiPrep.o GC/SemiSecret.o
+semi-ecdsa-party.x: $(OT) $(LIBQOKDOT) $(GC_SEMI)
 mascot-ecdsa-party.x: $(OT) $(LIBQOKDOT)
+rep4-ecdsa-party.x: GC/Rep4Prep.o
 fake-spdz-ecdsa-party.x: $(OT) $(LIBQOKDOT)
 emulate.x: GC/FakeSecret.o
-semi-bmr-party.x: GC/SemiPrep.o GC/SemiSecret.o $(OT)
+semi-bmr-party.x: $(GC_SEMI) $(OT)
 real-bmr-party.x: $(OT)
 paper-example.x: $(VM) $(OT) $(FHEOFFLINE)
-binary-example.x: $(VM) $(OT) GC/PostSacriBin.o GC/SemiPrep.o GC/SemiSecret.o GC/AtlasSecret.o
-mixed-example.x: $(VM) $(OT) GC/PostSacriBin.o GC/SemiPrep.o GC/SemiSecret.o GC/AtlasSecret.o Machines/Tinier.o
+binary-example.x: $(VM) $(OT) GC/PostSacriBin.o $(GC_SEMI) GC/AtlasSecret.o GC/Rep4Prep.o
+mixed-example.x: $(VM) $(OT) GC/PostSacriBin.o $(GC_SEMI) GC/AtlasSecret.o GC/Rep4Prep.o Machines/Tinier.o
+l2h-example.x: $(VM) $(OT) Machines/Tinier.o
+he-example.x: $(FHEOFFLINE)
 mascot-offline.x: $(VM) $(TINIER)
 cowgear-offline.x: $(TINIER) $(FHEOFFLINE)
+semi-offline.x: $(GC_SEMI) $(OT)
+semi2k-offline.x: $(GC_SEMI) $(OT)
+hemi-offline.x: $(GC_SEMI) $(FHEOFFLINE) $(OT)
 static/rep-bmr-party.x: $(BMR)
 static/mal-rep-bmr-party.x: $(BMR)
 static/shamir-bmr-party.x: $(BMR)
@@ -253,12 +282,13 @@ static/semi-bmr-party.x: $(BMR)
 static/real-bmr-party.x: $(BMR)
 static/bmr-program-party.x: $(BMR)
 static/no-party.x: Protocols/ShareInterface.o
+Test/failure.x: Protocols/MalRepRingOptions.o
 
 ifeq ($(AVX_OT), 1)
 
-$(LIBQOKDOT): OTKeys/Makefile
-
 OT/BaseOT.o: OTKeys/Makefile
+
+$(LIBQOKDOT): OTKeys/Makefile
 
 OTKeys/Makefile:
 	-mv OTKeys_$(KEY_REQUEST_INTERFACE) OTKeys
@@ -267,45 +297,77 @@ endif
 
 .PHONY: Programs/Circuits
 Programs/Circuits:
-	git submodule update --init Programs/Circuits
+	git submodule update --init Programs/Circuits || git clone https://github.com/mkskeller/bristol-fashion Programs/Circuits
 
-.PHONY: mpir-setup mpir-global mpir
-mpir-setup:
-	cd mpir; \
-	autoreconf -i; \
-	autoreconf -i
-	- $(MAKE) -C mpir clean
+deps/libOTe/libOTe:
+	git submodule update --init --recursive deps/libOTe || git clone --recurse-submodules https://github.com/mkskeller/softspoken-implementation deps/libOTe
+boost: deps/libOTe/libOTe
+	cd deps/libOTe; \
+	python3 build.py --setup --boost --install=$(CURDIR)/local
+maybe-boost: deps/libOTe/libOTe
+	cd `mktemp -d`; \
+	PATH="$(CURDIR)/local/bin:$(PATH)" cmake $(CURDIR)/deps/libOTe || \
+	{ cd -; make boost; }
 
-mpir-global: mpir-setup
-	cd mpir; \
-	./configure --enable-cxx;
-	$(MAKE) -C mpir
-	sudo $(MAKE) -C mpir install
+OTE_OPTS += -DENABLE_SOFTSPOKEN_OT=ON -DCMAKE_CXX_COMPILER=$(CXX) -DCMAKE_INSTALL_LIBDIR=lib
 
-mpir: mpir-setup
-	cd mpir; \
-	./configure --enable-cxx --prefix=$(CURDIR)/local
-	$(MAKE) -C mpir install
-	-echo MY_CFLAGS += -I./local/include >> CONFIG.mine
-	-echo MY_LDLIBS += -Wl,-rpath -Wl,$(CURDIR)/local/lib -L$(CURDIR)/local/lib >> CONFIG.mine
-
-mac-setup: mac-machine-setup
-	brew install openssl boost libsodium mpir yasm ntl
-	-echo MY_CFLAGS += -I/usr/local/opt/openssl/include -I/opt/homebrew/opt/openssl/include -I/opt/homebrew/include >> CONFIG.mine
-	-echo MY_LDLIBS += -L/usr/local/opt/openssl/lib -L/opt/homebrew/lib -L/opt/homebrew/opt/openssl/lib >> CONFIG.mine
-
-ifeq ($(MACHINE), aarch64)
-mac-machine-setup:
-	-echo ARCH = >> CONFIG.mine
-linux-machine-setup:
-	-echo ARCH = -march=armv8.2-a+crypto >> CONFIG.mine
+ifeq ($(ARM), 1)
+OTE_OPTS += -DENABLE_AVX=OFF -DENABLE_SSE=OFF
 else
-mac-machine-setup:
-linux-machine-setup:
+ifeq ($(AVX_OT), 0)
+OTE_OPTS += -DENABLE_AVX=OFF
+else
+OTE_OPTS += -DENABLE_AVX=ON -DENABLE_SSE=ON
+endif
 endif
 
-simde/simde:
-	git submodule update --init simde
+ifeq ($(USE_SHARED_OTE), 1)
+OTE = $(SHARED_OTE)
+else
+OTE = $(STATIC_OTE)
+endif
 
-clean:
+libote:
+	rm $(STATIC_OTE) $(SHARED_OTE)* 2>/dev/null; true
+	$(MAKE) $(OTE)
+
+local/lib/libcryptoTools.a: $(STATIC_OTE)
+local/lib/libcryptoTools.so: $(SHARED_OTE)
+
+ifeq ($(USE_KOS), 0)
+OT/OTExtensionWithMatrix.o: $(OTE)
+endif
+
+local/lib/liblibOTe.a: deps/libOTe/libOTe
+	make maybe-boost; \
+	cd deps/libOTe; \
+	PATH="$(CURDIR)/local/bin:$(PATH)" python3 build.py --install=$(CURDIR)/local -- -DBUILD_SHARED_LIBS=0 $(OTE_OPTS) && \
+	touch ../../local/lib/liblibOTe.a
+
+$(SHARED_OTE): deps/libOTe/libOTe maybe-boost
+	cd deps/libOTe; \
+	python3 build.py --install=$(CURDIR)/local -- -DBUILD_SHARED_LIBS=1 $(OTE_OPTS)
+
+cmake:
+	wget https://github.com/Kitware/CMake/releases/download/v3.24.1/cmake-3.24.1.tar.gz
+	tar xzvf cmake-3.24.1.tar.gz
+	cd cmake-3.24.1; \
+	./bootstrap --parallel=8 --prefix=../local && make -j8 && make install
+
+mac-setup: mac-machine-setup
+	brew install openssl boost libsodium gmp yasm ntl cmake
+
+linux-machine-setup:
+mac-machine-setup:
+
+deps/simde/simde:
+	git submodule update --init deps/simde || git clone https://github.com/simd-everywhere/simde deps/simde
+
+deps/sse2neon/sse2neon.h:
+	git submodule update --init deps/sse2neon || git clone https://github.com/DLTcollab/sse2neon deps/sse2neon
+
+clean-deps:
+	-rm -rf local/lib/liblibOTe.* deps/libOTe/out
+
+clean: clean-deps
 	-rm -f */*.o *.o */*.d *.d *.x core.* *.a gmon.out */*/*.o static/*.x *.so

@@ -17,11 +17,10 @@
  * - share of winning unique id * random value [w]
  *   winning unique id is valid if ∑ [y] * ∑ [r] = ∑ [w]
  *
- * To run with 2 parties / SPDZ engines:
- *   ./Scripts/setup-online.sh to create triple shares for each party (spdz engine).
+ * To run:
  *   ./Scripts/setup-clients.sh to create SSL keys and certificates for clients
- *   ./compile.py bankers_bonus
- *   ./Scripts/run-online.sh bankers_bonus to run the engines.
+ *   ./Scripts/compile-run.py <protocol> bankers_bonus to compile and run the engines.
+ *   (See https://github.com/data61/MP-SPDZ/?tab=readme-ov-file#protocols for options.)
  *
  *   ./bankers-bonus-client.x 0 2 100 0
  *   ./bankers-bonus-client.x 1 2 200 0
@@ -46,7 +45,7 @@
 #include <sstream>
 #include <fstream>
 
-template<class T>
+template<class T, class U>
 void one_run(T salary_value, Client& client)
 {
     // Run the computation
@@ -54,18 +53,18 @@ void one_run(T salary_value, Client& client)
     cout << "Sent private inputs to each SPDZ engine, waiting for result..." << endl;
 
     // Get the result back (client_id of winning client)
-    T result = client.receive_outputs<T>(1)[0];
+    U result = client.receive_outputs<T>(1)[0];
 
     cout << "Winning client id is : " << result << endl;
 }
 
-template<class T>
+template<class T, class U>
 void run(double salary_value, Client& client)
 {
     // sint
-    one_run<T>(long(round(salary_value)), client);
+    one_run<T, U>(long(round(salary_value)), client);
     // sfix with f = 16
-    one_run<T>(long(round(salary_value * exp2(16))), client);
+    one_run<T, U>(long(round(salary_value * exp2(16))), client);
 }
 
 int main(int argc, char** argv)
@@ -73,7 +72,7 @@ int main(int argc, char** argv)
     int my_client_id;
     int nparties;
     double salary_value;
-    int finish;
+    size_t finish;
     int port_base = 14000;
 
     if (argc < 5) {
@@ -125,22 +124,28 @@ int main(int argc, char** argv)
     {
         gfp::init_field(specification.get<bigint>());
         cerr << "using prime " << gfp::pr() << endl;
-        run<gfp>(salary_value, client);
+        run<gfp, gfp>(salary_value, client);
         break;
     }
     case 'R':
     {
         int R = specification.get<int>();
+        int R2 = specification.get<int>();
+        if (R2 != 64)
+        {
+            cerr << R2 << "-bit ring not implemented" << endl;
+        }
+
         switch (R)
         {
         case 64:
-            run<Z2<64>>(salary_value, client);
+            run<Z2<64>, Z2<64>>(salary_value, client);
             break;
         case 104:
-            run<Z2<104>>(salary_value, client);
+            run<Z2<104>, Z2<64>>(salary_value, client);
             break;
         case 128:
-            run<Z2<128>>(salary_value, client);
+            run<Z2<128>, Z2<64>>(salary_value, client);
             break;
         default:
             cerr << R << "-bit ring not implemented";

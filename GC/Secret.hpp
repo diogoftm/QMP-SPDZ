@@ -89,7 +89,7 @@ void Secret<T>::random(int n_bits, int128 share)
 {
     (void)share;
     if (n_bits > 128)
-        throw not_implemented();
+        throw runtime_error("too many bits");
     resize_regs(n_bits);
     for (int i = 0; i < n_bits; i++)
     	get_reg(i).random();
@@ -129,7 +129,7 @@ Secret<T>::Secret()
 template<class T>
 T& GC::Secret<T>::get_new_reg()
 {
-	registers.push_back(T::new_reg());
+	registers.push_back(T());
 	T& res = registers.back();
 #ifdef DEBUG_REGS
 	cout << "Secret: new " << typeid(T).name() << " " << res.get_id() << " at " << &res << endl;
@@ -197,7 +197,7 @@ Secret<T> Secret<T>::operator>>(int i) const
 
 template <class T>
 template <class U>
-void Secret<T>::bitcom(Memory<U>& S, const vector<int>& regs)
+void Secret<T>::bitcom(StackedVector<U>& S, const vector<int>& regs)
 {
     registers.clear();
     for (unsigned int i = 0; i < regs.size(); i++)
@@ -210,7 +210,7 @@ void Secret<T>::bitcom(Memory<U>& S, const vector<int>& regs)
 
 template <class T>
 template <class U>
-void Secret<T>::bitdec(Memory<U>& S, const vector<int>& regs) const
+void Secret<T>::bitdec(StackedVector<U>& S, const vector<int>& regs) const
 {
     if (regs.size() > registers.size())
         throw overflow("not enough bits for bit decomposition", regs.size(),

@@ -18,7 +18,7 @@ class ChaiGearPrep : public MaliciousRingPrep<T>
     typedef typename T::clear::FD FD;
     typedef SimpleGenerator<SummingEncCommit, FD> Generator;
 
-    static MultiplicativeMachine* machine;
+    static MultiplicativeMachineParams* machine;
     static Lock lock;
 
     Generator* generator;
@@ -33,6 +33,8 @@ class ChaiGearPrep : public MaliciousRingPrep<T>
     void buffer_bits(false_type);
 
 public:
+    static const bool homomorphic = true;
+
     static void basic_setup(Player& P);
     static void key_setup(Player& P, mac_key_type alphai);
     static void teardown();

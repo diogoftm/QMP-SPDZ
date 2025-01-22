@@ -6,7 +6,7 @@
 #ifndef MATH_Z2K_H_
 #define MATH_Z2K_H_
 
-#include <mpirxx.h>
+#include <gmpxx.h>
 #include <string>
 using namespace std;
 
@@ -52,7 +52,7 @@ public:
 	static int size() { return N_BYTES; }
 	static int size_in_limbs() { return N_WORDS; }
 	static int size_in_bits() { return size() * 8; }
-	static int length() { return size_in_bits(); }
+	static int length() { return n_bits(); }
 	static int n_bits() { return N_BITS; }
 	static int t() { return 0; }
 
@@ -74,6 +74,8 @@ public:
 
 	static Z2 power_of_two(bool bit, int exp) { return Z2(bit) << exp; }
 
+	static string fake_opts() { return " -lgp " + to_string(K); }
+
 	typedef Z2 next;
 	typedef Z2 Scalar;
 
@@ -85,6 +87,7 @@ public:
 	Z2(__m128i x) : Z2() { avx_memcpy(a, &x, min(N_BYTES, 16)); }
 	Z2(int x) : Z2(long(x)) { a[N_WORDS - 1] &= UPPER_MASK; }
 	Z2(long x) : Z2(mp_limb_t(x)) { if (K > 64 and x < 0) memset(&a[1], -1, N_BYTES - 8); }
+	Z2(long long x) : Z2(long(x)) {}
 	template<class T>
 	Z2(const IntBase<T>& x);
 	/**
@@ -106,6 +109,11 @@ public:
 	void assign(const void* buffer) { avx_memcpy(a, buffer, N_BYTES); normalize(); }
 	void assign(int x) { *this = x; }
 
+	/**
+	 * Get 64-bit part.
+	 *
+	 * @param i return word containing 64*i- to 64*i+63-least significant bits
+	 */
 	mp_limb_t get_limb(int i) const { return a[i]; }
 	bool get_bit(int i) const;
 
@@ -147,8 +155,6 @@ public:
 
 	bool operator==(const Z2<K>& other) const;
 	bool operator!=(const Z2<K>& other) const { return not (*this == other); }
-
-	void add(octetStream& os) { *this += (os.consume(size())); }
 
 	Z2 lazy_add(const Z2& x) const;
 	Z2 lazy_mul(const Z2& x) const;
@@ -300,7 +306,7 @@ public:
         return operator*(SignedZ2<64>(other));
     }
 
-    void output(ostream& s, bool human = true) const;
+    void output(ostream& s, bool human = true, bool signed_ = true) const;
 };
 
 template<int K>
@@ -438,6 +444,12 @@ void Z2<K>::randomize(PRNG& G, int n)
 template<int K>
 void Z2<K>::randomize_part(PRNG& G, int n)
 {
+	if (n >= N_BITS)
+	{
+		randomize(G);
+		return;
+	}
+
 	*this = {};
 	G.get_octets((octet*)a, DIV_CEIL(n, 8));
 	a[DIV_CEIL(n, 64) - 1] &= mp_limb_t(-1LL) >> (N_LIMB_BITS - 1 - (n - 1) % N_LIMB_BITS);
@@ -467,12 +479,17 @@ SignedZ2<K> abs(const SignedZ2<K>& x)
 }
 
 template<int K>
-void SignedZ2<K>::output(ostream& s, bool human) const
+void SignedZ2<K>::output(ostream& s, bool human, bool signed_) const
 {
     if (human)
     {
-        bigint::tmp = *this;
-        s << bigint::tmp;
+        if (signed_)
+        {
+            bigint::tmp = *this;
+            s << bigint::tmp;
+        }
+        else
+            Z2<K>::output(s, human);
     }
     else
         Z2<K>::output(s, false);
@@ -481,7 +498,7 @@ void SignedZ2<K>::output(ostream& s, bool human) const
 template<int K>
 ostream& operator<<(ostream& o, const SignedZ2<K>& x)
 {
-    x.output(o, true);
+    x.output(o, true, false);
     return o;
 }
 

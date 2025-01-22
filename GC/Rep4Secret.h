@@ -13,19 +13,22 @@
 namespace GC
 {
 
+class Rep4Prep;
+
 class Rep4Secret : public RepSecretBase<Rep4Secret, 3>
 {
     typedef RepSecretBase<Rep4Secret, 3> super;
     typedef Rep4Secret This;
 
 public:
-    typedef DummyLivePrep<This> LivePrep;
+    typedef Rep4Prep LivePrep;
     typedef Rep4<This> Protocol;
     typedef Rep4MC<This> MC;
     typedef MC MAC_Check;
     typedef Rep4Input<This> Input;
 
     static const bool expensive_triples = false;
+    static const bool malicious = true;
 
     static MC* new_mc(typename super::mac_key_type) { return new MC; }
 

@@ -12,6 +12,10 @@
 #include "Networking/Player.h"
 #include "Protocols/edabit.h"
 #include "PrepBase.h"
+#include "PrepBuffer.h"
+#include "EdabitBuffer.h"
+#include "Tools/TimerWithComm.h"
+#include "Tools/CheckVector.h"
 
 #include <fstream>
 #include <map>
@@ -83,6 +87,10 @@ public:
   void print_cost() const;
   bool empty() const;
   bool any_more(const DataPositions& other) const;
+
+  long long total_edabits(int n_bits) const;
+
+  long long triples_for_matmul();
 };
 
 template<class sint, class sgf2n> class Processor;
@@ -100,11 +108,6 @@ class Preprocessing : public PrepBase
 protected:
   static const bool use_part = false;
 
-  DataPositions& usage;
-
-  map<pair<bool, int>, vector<edabitvec<T>>> edabits;
-  map<pair<bool, int>, edabitvec<T>> my_edabits;
-
   bool do_count;
 
   void count(Dtype dtype, int n = 1)
@@ -114,15 +117,19 @@ protected:
 
   template<int>
   void get_edabits(bool strict, size_t size, T* a,
-      vector<typename T::bit_type>& Sb, const vector<int>& regs, false_type);
+      StackedVector<typename T::bit_type>& Sb, const vector<int>& regs, false_type);
   template<int>
-  void get_edabits(bool, size_t, T*, vector<typename T::bit_type>&,
+  void get_edabits(bool, size_t, T*, StackedVector<typename T::bit_type>&,
       const vector<int>&, true_type)
   { throw not_implemented(); }
+
+  void fill(edabitvec<T>& res, bool strict, int n_bits);
 
   T get_random_from_inputs(int nplayers);
 
 public:
+  int buffer_size;
+
   template<class U, class V>
   static Preprocessing<T>* get_new(Machine<U, V>& machine, DataPositions& usage,
       SubProcessor<T>* proc);
@@ -132,7 +139,8 @@ public:
   static Preprocessing<T>* get_live_prep(SubProcessor<T>* proc,
       DataPositions& usage);
 
-  Preprocessing(DataPositions& usage) : usage(usage), do_count(true) {}
+  Preprocessing(DataPositions& usage) :
+      PrepBase(usage), do_count(true), buffer_size(0) {}
   virtual ~Preprocessing() {}
 
   virtual void set_protocol(typename T::Protocol&) {};
@@ -148,7 +156,7 @@ public:
   virtual void get_one_no_count(Dtype, T&) { throw not_implemented(); }
   virtual void get_input_no_count(T&, typename T::open_type&, int)
   { throw not_implemented() ; }
-  virtual void get_no_count(vector<T>&, DataTag, const vector<int>&, int)
+  virtual void get_no_count(StackedVector<T>&, DataTag, const vector<int>&, int)
   { throw not_implemented(); }
 
   void get(Dtype dtype, T* a);
@@ -156,7 +164,7 @@ public:
   void get_two(Dtype dtype, T& a, T& b);
   void get_one(Dtype dtype, T& a);
   void get_input(T& a, typename T::open_type& x, int i);
-  void get(vector<T>& S, DataTag tag, const vector<int>& regs, int vector_size);
+  void get(StackedVector<T>& S, DataTag tag, const vector<int>& regs, int vector_size);
 
   /// Get fresh random multiplication triple
   virtual array<T, 3> get_triple(int n_bits);
@@ -165,18 +173,19 @@ public:
   virtual T get_bit();
   /// Get fresh random value in domain
   virtual T get_random();
+  virtual T get_random_for_open();
+  virtual T get_random_no_count();
   /// Store fresh daBit in ``a`` (arithmetic part) and ``b`` (binary part)
   virtual void get_dabit(T& a, typename T::bit_type& b);
   virtual void get_dabit_no_count(T&, typename T::bit_type&) { throw runtime_error("no daBit"); }
   virtual void get_edabits(bool strict, size_t size, T* a,
-          vector<typename T::bit_type>& Sb, const vector<int>& regs)
+          StackedVector<typename T::bit_type>& Sb, const vector<int>& regs)
   { get_edabits<0>(strict, size, a, Sb, regs, T::clear::characteristic_two); }
-  template<int>
-  void get_edabit_no_count(bool, int n_bits, edabit<T>& eb);
-  template<int>
+  virtual void get_edabit_no_count(bool, int, edabit<T>&)
+  { throw runtime_error("no edaBits"); }
   /// Get fresh edaBit chunk
-  edabitvec<T> get_edabitvec(bool strict, int n_bits);
-  virtual void buffer_edabits_with_queues(bool, int) { throw runtime_error("no edaBits"); }
+  virtual edabitvec<T> get_edabitvec(bool, int)
+  { throw runtime_error("no edabitvec"); }
 
   virtual void push_triples(const vector<array<T, 3>>&)
   { throw runtime_error("no pushing"); }
@@ -185,6 +194,8 @@ public:
   virtual void buffer_inverses() {}
 
   virtual Preprocessing<typename T::part_type>& get_part() { throw runtime_error("no part"); }
+
+  virtual int minimum_batch() { return 0; }
 };
 
 template<class T>
@@ -197,12 +208,13 @@ class Sub_Data_Files : public Preprocessing<T>
 
   static int tuple_length(int dtype);
 
-  BufferOwner<T, T> buffers[N_DTYPE];
-  vector<BufferOwner<T, T>> input_buffers;
-  BufferOwner<InputTuple<T>, RefInputTuple<T>> my_input_buffers;
-  map<DataTag, BufferOwner<T, T> > extended;
-  BufferOwner<dabit<T>, dabit<T>> dabit_buffer;
-  map<int, ifstream*> edabit_buffers;
+  array<PrepBuffer<T>, N_DTYPE> buffers;
+  vector<PrepBuffer<T>> input_buffers;
+  PrepBuffer<InputTuple<T>, RefInputTuple<T>, T> my_input_buffers;
+  map<DataTag, PrepBuffer<T> > extended;
+  PrepBuffer<dabit<T>, dabit<T>, T> dabit_buffer;
+  map<int, EdabitBuffer<T>> edabit_buffers;
+  map<int, edabitvec<T>> my_edabits;
 
   int my_num,num_players;
 
@@ -211,13 +223,11 @@ class Sub_Data_Files : public Preprocessing<T>
 
   part_type* part;
 
-  void buffer_edabits_with_queues(bool strict, int n_bits)
-  { buffer_edabits_with_queues<0>(strict, n_bits, T::clear::characteristic_two); }
-  template<int>
-  void buffer_edabits_with_queues(bool strict, int n_bits, false_type);
-  template<int>
-  void buffer_edabits_with_queues(bool, int, true_type)
-  { throw not_implemented(); }
+  EdabitBuffer<T>& get_edabit_buffer(int n_bits);
+
+  /// Get fresh edaBit chunk
+  edabitvec<T> get_edabitvec(bool strict, int n_bits);
+  void get_edabit_no_count(bool strict, int n_bits, edabit<T>& eb);
 
 public:
   static string get_filename(const Names& N, Dtype type, int thread_num = -1);
@@ -225,6 +235,12 @@ public:
       int thread_num = -1);
   static string get_edabit_filename(const Names& N, int n_bits,
       int thread_num = -1);
+
+  static long additional_inputs(const DataPositions& usage);
+
+  static string get_prep_dir(const Names& N);
+  static void check_setup(const Names& N);
+  static void check_setup(int num_players, const string& prep_dir);
 
   Sub_Data_Files(int my_num, int num_players, const string& prep_data_dir,
       DataPositions& usage, int thread_num = -1);
@@ -275,7 +291,7 @@ public:
   }
 
   void setup_extended(const DataTag& tag, int tuple_size = 0);
-  void get_no_count(vector<T>& S, DataTag tag, const vector<int>& regs, int vector_size);
+  void get_no_count(StackedVector<T>& S, DataTag tag, const vector<int>& regs, int vector_size);
   void get_dabit_no_count(T& a, typename T::bit_type& b);
 
   part_type& get_part();
@@ -296,7 +312,7 @@ class Data_Files
 
   Data_Files(Machine<sint, sgf2n>& machine, SubProcessor<sint>* procp = 0,
       SubProcessor<sgf2n>* proc2 = 0);
-  Data_Files(const Names& N);
+  Data_Files(const Names& N, int thread_num = -1);
   ~Data_Files();
 
   DataPositions tellg() { return usage; }
@@ -311,6 +327,10 @@ class Data_Files
   }
 
   void reset_usage() { usage.reset(); skipped.reset(); }
+
+  void set_usage(const DataPositions& pos) { usage = pos; }
+
+  TimerWithComm total_time();
 };
 
 template<class T> inline
@@ -384,7 +404,7 @@ inline void Preprocessing<T>::get_input(T& a, typename T::open_type& x, int i)
 }
 
 template<class T>
-inline void Preprocessing<T>::get(vector<T>& S, DataTag tag,
+inline void Preprocessing<T>::get(StackedVector<T>& S, DataTag tag,
     const vector<int>& regs, int vector_size)
 {
   usage.count(T::clear::field_type(), tag, vector_size);
@@ -419,6 +439,21 @@ T Preprocessing<T>::get_bit()
 
 template<class T>
 T Preprocessing<T>::get_random()
+{
+  count(DATA_RANDOM);
+  return get_random_no_count();
+}
+
+template<class T>
+T Preprocessing<T>::get_random_for_open()
+{
+  assert(T::randoms_for_opens);
+  count(DATA_OPEN);
+  return get_random_no_count();
+}
+
+template<class T>
+T Preprocessing<T>::get_random_no_count()
 {
   assert(not usage.inputs.empty());
   return get_random_from_inputs(usage.inputs.size());

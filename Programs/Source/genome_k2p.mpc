@@ -1,0 +1,29 @@
+from circuit import Circuit
+import sys
+
+cir = Circuit('dis_k2p')
+sb64k = sbits.get_type(64000)
+
+n_inputs = int(sys.argv[2])
+
+print_ln('Working with %s sequences', n_inputs) 
+
+l0 = sb64k.Array(n_inputs*n_inputs)
+l1 = sb64k.Array(n_inputs*n_inputs)
+
+for i in range(n_inputs):
+    a = sb64k.get_input_from(0)
+    b = sb64k.get_input_from(1)
+
+    for n in range(n_inputs):
+        l0[i*n_inputs+n] = a
+        l1[n*n_inputs+i] = b
+
+distance = cir(sbitvec(l0), sbitvec(l1))
+
+# P Q
+# the results is going to be two lists, the first with the Ps
+# and the second with the Qs
+r0 = [distance[0].elements()[n].reveal() for n in range(n_inputs*n_inputs)]
+r1 = [distance[1].elements()[n].reveal() for n in range(n_inputs*n_inputs)]
+print_ln("%s %s", r0, r1)

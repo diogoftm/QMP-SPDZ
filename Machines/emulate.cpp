@@ -17,6 +17,7 @@
 #include "Protocols/ReplicatedPrep.hpp"
 #include "Protocols/FakeShare.hpp"
 #include "Protocols/MalRepRingPrep.hpp"
+#include "Protocols/MAC_Check_Base.hpp"
 
 int main(int argc, const char** argv)
 {
@@ -25,23 +26,9 @@ int main(int argc, const char** argv)
     ez::ezOptionParser opt;
     RingOptions ring_opts(opt, argc, argv);
     online_opts = {opt, argc, argv, FakeShare<SignedZ2<64>>()};
-    opt.parse(argc, argv);
     opt.syntax = string(argv[0]) + " <progname>";
-
-    string progname;
-    if (opt.firstArgs.size() > 1)
-        progname = *opt.firstArgs.at(1);
-    else if (not opt.lastArgs.empty())
-        progname = *opt.lastArgs.at(0);
-    else if (not opt.unknownArgs.empty())
-        progname = *opt.unknownArgs.at(0);
-    else
-    {
-        string usage;
-        opt.getUsage(usage);
-        cerr << usage << endl;
-        exit(1);
-    }
+    online_opts.finalize(opt, argc, argv, false);
+    string& progname = online_opts.progname;
 
 #ifdef ROUND_NEAREST_IN_EMULATION
     cerr << "Using nearest rounding instead of probabilistic truncation" << endl;
@@ -54,9 +41,8 @@ int main(int argc, const char** argv)
     {
 #define X(L) \
     case L: \
-        Machine<FakeShare<SignedZ2<L>>, FakeShare<gf2n>>(0, N, progname, \
-                online_opts.memtype, gf2n::default_degree(), 0, 0, 0, 0, false, \
-                online_opts.live_prep, online_opts).run(); \
+        Machine<FakeShare<SignedZ2<L>>, FakeShare<gf2n>>(N, false, online_opts, \
+                gf2n::default_degree()).run(progname); \
         break;
     X(64) X(128) X(256) X(192) X(384) X(512)
 #ifdef RING_SIZE

@@ -19,16 +19,17 @@ template <int K>
 class Semi2kShare : public SemiShare<SignedZ2<K>>
 {
     typedef SignedZ2<K> T;
+    typedef Semi2kShare This;
 
 public:
-    typedef Z2<64> mac_key_type;
-
     typedef SemiMC<Semi2kShare> MAC_Check;
     typedef DirectSemiMC<Semi2kShare> Direct_MC;
     typedef SemiInput<Semi2kShare> Input;
     typedef ::PrivateOutput<Semi2kShare> PrivateOutput;
-    typedef Semi<Semi2kShare> Protocol;
+    typedef Semi<Semi2kShare> BasicProtocol;
     typedef SemiPrep2k<Semi2kShare> LivePrep;
+    typedef MaybeHemi<This> Protocol;
+    typedef DummyMatrixPrep<This> MatrixPrep;
 
     typedef Semi2kShare prep_type;
     typedef SemiMultiplier<Semi2kShare> Multiplier;
@@ -51,13 +52,12 @@ public:
     }
 
     template<class U>
-    static void split(vector<U>& dest, const vector<int>& regs, int n_bits,
+    static void split(StackedVector<U>& dest, const vector<int>& regs, int n_bits,
             const Semi2kShare* source, int n_inputs,
             typename U::Protocol& protocol)
     {
         auto& P = protocol.P;
         int my_num = P.my_num();
-        assert(n_bits <= 64);
         int unit = GC::Clear::N_BITS;
         for (int k = 0; k < DIV_CEIL(n_inputs, unit); k++)
         {
@@ -69,33 +69,28 @@ public:
                         to_string(n) + "-way split not working with "
                                 + to_string(P.num_players()) + " parties");
 
-            for (int i = 0; i < n_bits; i++)
-                for (int j = 0; j < n; j++)
-                    dest.at(regs.at(n * i + j) + k) = {};
-
-            square64 square;
-
-            for (int j = 0; j < m; j++)
-                square.rows[j] = Integer(source[j + start]).get();
-
-            square.transpose(m, n_bits);
-
-            for (int j = 0; j < n_bits; j++)
+            for (int l = 0; l < n_bits; l += unit)
             {
-                auto& dest_reg = dest.at(regs.at(n * j + my_num) + k);
-                dest_reg = square.rows[j];
-            }
-        }
-    }
+                int base = l;
+                int n_left = min(n_bits - base, unit);
+                for (int i = base; i < base + n_left; i++)
+                    for (int j = 0; j < n; j++)
+                        dest.at(regs.at(n * i + j) + k) = {};
 
-    template<class T>
-    static void shrsi(SubProcessor<T>& proc, const Instruction& inst)
-    {
-        for (int i = 0; i < inst.get_size(); i++)
-        {
-            auto& dest = proc.get_S_ref(inst.get_r(0) + i);
-            auto& source = proc.get_S_ref(inst.get_r(1) + i);
-            dest = source >> inst.get_n();
+                square64 square;
+
+                for (int j = 0; j < m; j++)
+                    square.rows[j] = source[j + start].get_limb(l / unit);
+
+                square.transpose(m, n_left);
+
+                for (int j = 0; j < n_left; j++)
+                {
+                    auto& dest_reg = dest.at(
+                            regs.at(n * (base + j) + my_num) + k);
+                    dest_reg = square.rows[j];
+                }
+            }
         }
     }
 };

@@ -20,14 +20,16 @@
 
 template<class T>
 ProtocolBase<T>::ProtocolBase() :
-        trunc_pr_counter(0), rounds(0), trunc_rounds(0), counter(0)
+        trunc_pr_counter(0), rounds(0), trunc_rounds(0), dot_counter(0),
+        bit_counter(0), counter(0)
 {
+    buffer_size = OnlineOptions::singleton.batch_size;
 }
 
 template<class T>
 Replicated<T>::Replicated(Player& P) : ReplicatedBase(P)
 {
-    assert(T::length == 2);
+    assert(T::vector_length == 2);
 }
 
 template<class T>
@@ -40,7 +42,7 @@ inline ReplicatedBase::ReplicatedBase(Player& P) : P(P)
 {
     assert(P.num_players() == 3);
 	if (not P.is_encrypted())
-		insecure("unencrypted communication");
+		insecure("unencrypted communication", false);
 
 	shared_prngs[0].ReSeed();
 	octetStream os;
@@ -57,7 +59,7 @@ inline ReplicatedBase::ReplicatedBase(Player& P, array<PRNG, 2>& prngs) :
         shared_prngs[i].SetSeed(prngs[i]);
 }
 
-inline ReplicatedBase ReplicatedBase::branch()
+inline ReplicatedBase ReplicatedBase::branch() const
 {
     return {P, shared_prngs};
 }
@@ -67,18 +69,14 @@ ProtocolBase<T>::~ProtocolBase()
 {
 #ifdef VERBOSE_COUNT
     if (counter or rounds)
-        cerr << "Number of " << T::type_string() << " multiplications: " << counter << " in " << rounds << " rounds" << endl;
+        cerr << "Number of " << T::type_string() << " multiplications: "
+                << counter << " (" << bit_counter << " bits) in " << rounds
+                << " rounds" << endl;
+    if (counter or rounds)
+        cerr << "Number of " << T::type_string() << " dot products: " << dot_counter << endl;
     if (trunc_pr_counter or trunc_rounds)
         cerr << "Number of probabilistic truncations: " << trunc_pr_counter << " in " << trunc_rounds << " rounds" << endl;
 #endif
-}
-
-template<class T>
-void ProtocolBase<T>::muls(const vector<int>& reg,
-        SubProcessor<T>& proc, typename T::MAC_Check& MC, int size)
-{
-    (void)MC;
-    proc.muls(reg, size);
 }
 
 template<class T>
@@ -117,6 +115,13 @@ T ProtocolBase<T>::mul(const T& x, const T& y)
 }
 
 template<class T>
+void ProtocolBase<T>::prepare_mult(const T& x, const T& y, int n,
+		bool)
+{
+    prepare_mul(x, y, n);
+}
+
+template<class T>
 void ProtocolBase<T>::finalize_mult(T& res, int n)
 {
     res = finalize_mul(n);
@@ -126,6 +131,7 @@ template<class T>
 T ProtocolBase<T>::finalize_dotprod(int length)
 {
     counter += length;
+    dot_counter++;
     T res;
     for (int i = 0; i < length; i++)
         res += finalize_mul();
@@ -143,6 +149,16 @@ T ProtocolBase<T>::get_random()
 
     auto res = random.back();
     random.pop_back();
+    return res;
+}
+
+template<class T>
+vector<int> ProtocolBase<T>::get_relevant_players()
+{
+    vector<int> res;
+    int n = dynamic_cast<typename T::Protocol&>(*this).P.num_players();
+    for (int i = 0; i < T::threshold(n) + 1; i++)
+        res.push_back(i);
     return res;
 }
 
@@ -177,6 +193,7 @@ void Replicated<T>::prepare_reshare(const typename T::clear& share,
 template<class T>
 void Replicated<T>::exchange()
 {
+    os[0].append(0);
     if (os[0].get_length() > 0)
         P.pass_around(os[0], os[1], 1);
     this->rounds++;
@@ -185,6 +202,7 @@ void Replicated<T>::exchange()
 template<class T>
 void Replicated<T>::start_exchange()
 {
+    os[0].append(0);
     P.send_relative(1, os[0]);
     this->rounds++;
 }
@@ -196,9 +214,17 @@ void Replicated<T>::stop_exchange()
 }
 
 template<class T>
+void ProtocolBase<T>::add_mul(int n)
+{
+    // counted in SubProcessor
+    // this->counter++;
+    this->bit_counter += n < 0 ? T::default_length : n;
+}
+
+template<class T>
 inline T Replicated<T>::finalize_mul(int n)
 {
-    this->counter++;
+    this->add_mul(n);
     T result;
     result[0] = add_shares.next();
     result[1].unpack(os[1], n);
@@ -230,6 +256,7 @@ template<class T>
 inline T Replicated<T>::finalize_dotprod(int length)
 {
     (void) length;
+    this->dot_counter++;
     return finalize_mul();
 }
 
@@ -243,7 +270,7 @@ T Replicated<T>::get_random()
 }
 
 template<class T>
-void ProtocolBase<T>::randoms_inst(vector<T>& S,
+void ProtocolBase<T>::randoms_inst(StackedVector<T>& S,
 		const Instruction& instruction)
 {
     for (int j = 0; j < instruction.get_size(); j++)
@@ -277,7 +304,18 @@ void Replicated<T>::trunc_pr(const vector<int>& regs, int size, U& proc,
     auto& S = proc.get_S();
 
     octetStream cs;
-    ReplicatedInput<T> input(P);
+    ReplicatedInput<T> input(0, *this);
+
+    // use https://eprint.iacr.org/2019/131
+    bool have_small_gap = false;
+    // use https://eprint.iacr.org/2018/403
+    bool have_big_gap = false;
+
+    for (auto info : infos)
+        if (info.small_gap())
+            have_small_gap = true;
+        else
+            have_big_gap = true;
 
     if (generate)
     {
@@ -285,15 +323,27 @@ void Replicated<T>::trunc_pr(const vector<int>& regs, int size, U& proc,
         for (auto info : infos)
             for (int i = 0; i < size; i++)
             {
-                auto r = G.get<value_type>();
-                input.add_mine(info.upper(r));
+                auto& x = S[info.source_base + i];
                 if (info.small_gap())
+                {
+                    auto r = G.get<value_type>();
+                    input.add_mine(info.upper(r));
                     input.add_mine(info.msb(r));
-                (r + S[info.source_base + i][0]).pack(cs);
+                    (r + x[0]).pack(cs);
+                }
+                else
+                {
+                    auto& y = S[info.dest_base + i];
+                    auto r = this->shared_prngs[0].template get<value_type>();
+                    y[1] = -value_type(-value_type(x.sum()) >> info.m) - r;
+                    y[1].pack(cs);
+                    y[0] = r;
+                }
             }
+
         P.send_to(comp_player, cs);
     }
-    else
+    else if (have_small_gap)
         input.add_other(gen_player);
 
     if (compute)
@@ -302,41 +352,67 @@ void Replicated<T>::trunc_pr(const vector<int>& regs, int size, U& proc,
         for (auto info : infos)
             for (int i = 0; i < size; i++)
             {
-                auto c = cs.get<value_type>() + S[info.source_base + i].sum();
-                input.add_mine(info.upper(c));
+                auto& x = S[info.source_base + i];
                 if (info.small_gap())
+                {
+                    auto c = cs.get<value_type>() + x.sum();
+                    input.add_mine(info.upper(c));
                     input.add_mine(info.msb(c));
+                }
+                else
+                {
+                    auto& y = S[info.dest_base + i];
+                    y[0] = cs.get<value_type>();
+                    y[1] = x[1] >> info.m;
+                }
             }
     }
 
-    input.add_other(comp_player);
-    input.exchange();
-    init_mul();
+    if (have_big_gap and not (compute or generate))
+    {
+        for (auto info : infos)
+            if (info.big_gap())
+                for (int i = 0; i < size; i++)
+                {
+                    auto& x = S[info.source_base + i];
+                    auto& y = S[info.dest_base + i];
+                    y[0] = x[0] >> info.m;
+                    y[1] = this->shared_prngs[1].template get<value_type>();
+                }
+    }
 
-    for (auto info : infos)
-        for (int i = 0; i < size; i++)
-        {
-            auto c_prime = input.finalize(comp_player);
-            auto r_prime = input.finalize(gen_player);
-            S[info.dest_base + i] = c_prime - r_prime;
+    if (have_small_gap)
+    {
+        input.add_other(comp_player);
+        input.exchange();
+        init_mul();
 
-            if (info.small_gap())
+        for (auto info : infos)
+            for (int i = 0; i < size; i++)
             {
-                auto c_dprime = input.finalize(comp_player);
-                auto r_msb = input.finalize(gen_player);
-                S[info.dest_base + i] += ((r_msb + c_dprime)
-                        << (info.k - info.m));
-                prepare_mul(r_msb, c_dprime);
+                if (info.small_gap())
+                {
+                    this->trunc_pr_counter++;
+                    auto c_prime = input.finalize(comp_player);
+                    auto r_prime = input.finalize(gen_player);
+                    S[info.dest_base + i] = c_prime - r_prime;
+
+                    auto c_dprime = input.finalize(comp_player);
+                    auto r_msb = input.finalize(gen_player);
+                    S[info.dest_base + i] += ((r_msb + c_dprime)
+                            << (info.k - info.m));
+                    prepare_mul(r_msb, c_dprime);
+                }
             }
-        }
 
-    exchange();
+        exchange();
 
-    for (auto info : infos)
-        for (int i = 0; i < size; i++)
-            if (info.small_gap())
-                S[info.dest_base + i] -= finalize_mul()
-                        << (info.k - info.m + 1);
+        for (auto info : infos)
+            for (int i = 0; i < size; i++)
+                if (info.small_gap())
+                    S[info.dest_base + i] -= finalize_mul()
+                            << (info.k - info.m + 1);
+    }
 }
 
 template<class T>

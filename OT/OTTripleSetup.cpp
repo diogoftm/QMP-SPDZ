@@ -1,6 +1,6 @@
 #include "OTTripleSetup.h"
 
-void OTTripleSetup::setup()
+void OTTripleSetup::setup(Player& N)
 {
     timeval baseOTstart, baseOTend;
     gettimeofday(&baseOTstart, NULL);
@@ -21,13 +21,17 @@ void OTTripleSetup::setup()
         else
             other_player = i;
         baseOTs[i]->set_receiver_inputs(base_receiver_inputs);
-        baseOTs[i]->exec_base(my_num, other_player, players[0]->get_full_player().N.get_name(my_num),
-                            players[0]->get_full_player().N.get_name(other_player),
-                            players[0]->get_full_player().N.get_portnum(my_num),
-                            players[0]->get_full_player().N.get_portnum(other_player), 
-                            players[0]->get_full_player().N.get_sae(other_player).c_str(),
-                            players[0]->get_full_player().N.get_ksid(other_player),
-                            players[0]->get_full_player().N.get_index(other_player), false);
+
+        baseOTs[i]->exec_base(
+                            my_num, 
+                            other_player, 
+                            N.N.get_name(my_num),
+                            N.N.get_name(other_player),
+                            N.N.get_portnum(my_num),
+                            N.N.get_portnum(other_player), 
+                            N.N.get_sae(other_player).c_str(),
+                            N.N.get_ksid(other_player),
+                            N.N.get_index(other_player), false);
         baseSenderInputs[i] = baseOTs[i]->sender_inputs;
         baseReceiverOutputs[i] = baseOTs[i]->receiver_outputs;
     }
@@ -61,7 +65,7 @@ OTTripleSetup OTTripleSetup::get_fresh()
     OTTripleSetup res = *this;
     for (int i = 0; i < nparties - 1; i++)
     {
-        BaseOT bot(nbase, 128, 0);
+        BaseOT bot(nbase, 0);
         bot.sender_inputs = baseSenderInputs[i];
         bot.receiver_outputs = baseReceiverOutputs[i];
         bot.set_seeds();

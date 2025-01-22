@@ -232,14 +232,12 @@ OTMachine::OTMachine(int argc, const char** argv)
     gettimeofday(&baseOTstart, NULL);
     // swap role for base OTs
     if (opt.isSet("-r"))
-        bot_ = new BaseOT(nbase, 128, P, INV_ROLE(ot_role));
+        bot_ = new BaseOT(nbase, P, INV_ROLE(ot_role));
     else
-        bot_ = new FakeOT(nbase, 128, P, INV_ROLE(ot_role));
+        bot_ = new FakeOT(nbase, P, INV_ROLE(ot_role));
     cout << "real mode " << opt.isSet("-r") << endl;
     BaseOT& bot = *bot_;
-    std::cerr << "Error: The OTMachine.cpp file is not prepared to work with OTKeys. Please integrate my_num and other_player index in OTMachine.cpp::242.\n" << std::endl;
-    exit(1);
-    bot.exec_base(0,1); // MS : just testing. TODO: exec_base(my_num, other_player)
+    //bot.exec_base();
     gettimeofday(&baseOTend, NULL);
     double basetime = timeval_diff(&baseOTstart, &baseOTend);
     cout << "\t\tBaseTime (" << role_to_str(ot_role) << "): " << basetime/1000000 << endl << flush;
@@ -304,7 +302,7 @@ void OTMachine::run()
 
     // copy base inputs/outputs for each thread
     vector<BitVector> base_receiver_input_copy(nthreads);
-    vector<vector< vector<BitVector> > > base_sender_inputs_copy(nthreads, vector<vector<BitVector> >(nbase, vector<BitVector>(2)));
+    vector<vector< array<BitVector, 2> > > base_sender_inputs_copy(nthreads, vector<array<BitVector, 2> >(nbase));
     vector< vector<BitVector> > base_receiver_outputs_copy(nthreads, vector<BitVector>(nbase));
     vector<TwoPartyPlayer*> players(nthreads);
 
@@ -367,11 +365,11 @@ void OTMachine::run()
     {
         BitVector receiver_output, sender_output;
         char filename[1024];
-        sprintf(filename, RECEIVER_INPUT, my_num);
+        snprintf(filename, 1024, RECEIVER_INPUT, my_num);
         ofstream outf(filename);
         receiverInput.output(outf, false);
         outf.close();
-        sprintf(filename, RECEIVER_OUTPUT, my_num);
+        snprintf(filename, 1024, RECEIVER_OUTPUT, my_num);
         outf.open(filename);
         for (unsigned int i = 0; i < nOTs; i++)
         {
@@ -382,7 +380,7 @@ void OTMachine::run()
 
         for (int i = 0; i < 2; i++)
         {
-            sprintf(filename, SENDER_OUTPUT, my_num, i);
+            snprintf(filename,1024, SENDER_OUTPUT, my_num, i);
             outf.open(filename);
             for (int j = 0; j < nOTs; j++)
             {

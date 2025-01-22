@@ -56,8 +56,6 @@ public:
 
     void extend_bit(BitVec_& res, int) const { res = extend_bit(); }
 
-    void add(octetStream& os) { *this += os.get<BitVec_>(); }
-
     void mul(const BitVec_& a, const BitVec_& b) { *this = a * b; }
 
     void randomize(PRNG& G, int n = n_bits) { super::randomize(G); *this = this->mask(n); }
@@ -69,6 +67,8 @@ public:
     {
         if (n == -1)
             pack(os);
+        else if (n < 8)
+            os.store_bits(this->a, n);
         else
             os.store_int(super::mask(n).get(), DIV_CEIL(n, 8));
     }
@@ -77,6 +77,8 @@ public:
     {
         if (n == -1)
             unpack(os);
+        else if (n < 8)
+            this->a = os.get_bits(n);
         else
             this->a = os.get_int(DIV_CEIL(n, 8));
     }

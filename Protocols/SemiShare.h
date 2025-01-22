@@ -9,6 +9,7 @@
 #include "Protocols/Beaver.h"
 #include "Protocols/Semi.h"
 #include "Processor/DummyProtocol.h"
+#include "GC/NoShare.h"
 #include "ShareInterface.h"
 
 #include <string>
@@ -18,11 +19,17 @@ template<class T> class Input;
 template<class T> class SemiMC;
 template<class T> class DirectSemiMC;
 template<class T> class Semi;
+template<class T> class Hemi;
 template<class T> class SemiPrep;
 template<class T> class SemiInput;
 template<class T> class PrivateOutput;
 template<class T> class SemiMultiplier;
 template<class T> class OTTripleGenerator;
+template<class T> class DummyMatrixPrep;
+
+template<class T>
+using MaybeHemi = typename conditional<T::clear::characteristic_two,
+        typename T::BasicProtocol, Hemi<T>>::type;
 
 namespace GC
 {
@@ -49,20 +56,22 @@ template<class T>
 class SemiShare : public T, public ShareInterface
 {
     typedef T super;
+    typedef SemiShare This;
 
 public:
-    typedef T mac_key_type;
-    typedef T mac_type;
     typedef T open_type;
     typedef T clear;
+    typedef SemiShare share_type;
 
     typedef SemiMC<SemiShare> MAC_Check;
     typedef DirectSemiMC<SemiShare> Direct_MC;
     typedef SemiInput<SemiShare> Input;
     typedef ::PrivateOutput<SemiShare> PrivateOutput;
-    typedef Semi<SemiShare> Protocol;
+    typedef Semi<SemiShare> BasicProtocol;
     typedef SemiPrep<SemiShare> LivePrep;
     typedef LivePrep TriplePrep;
+    typedef MaybeHemi<This> Protocol;
+    typedef DummyMatrixPrep<This> MatrixPrep;
 
     typedef SemiShare<typename T::next> prep_type;
     typedef SemiMultiplier<SemiShare> Multiplier;
@@ -79,6 +88,7 @@ public:
     const static bool variable_players = true;
     const static bool expensive = false;
     static const bool has_trunc_pr = true;
+    static const bool malicious = false;
 
     static string type_short() { return "D" + string(1, T::type_char()); }
 
@@ -87,10 +97,13 @@ public:
         return nplayers - 1;
     }
 
-    static SemiShare constant(const clear& other, int my_num,
-            const T& alphai = {}, int = -1)
+    static SemiShare constant(const open_type& other, int my_num,
+            mac_key_type = {}, int = -1)
     {
-        return SemiShare(other, my_num, alphai);
+        if (my_num == 0)
+            return other;
+        else
+            return {};
     }
 
     SemiShare()
@@ -99,11 +112,6 @@ public:
     template<class U>
     SemiShare(const U& other) : T(other)
     {
-    }
-    SemiShare(const clear& other, int my_num, const T& alphai = {})
-    {
-        (void) alphai;
-        Protocol::assign(*this, other, my_num);
     }
 
     void assign(const char* buffer)
@@ -129,6 +137,31 @@ public:
     void unpack(octetStream& os, int n_bits)
     {
         super::unpack(os, n_bits);
+    }
+
+    template<class U>
+    static void shrsi(SubProcessor<U>& proc, const Instruction& inst)
+    {
+        shrsi(proc, inst, T::prime_field);
+    }
+
+    template<class U>
+    static void shrsi(SubProcessor<U>&, const Instruction&,
+            true_type)
+    {
+        throw runtime_error("shrsi not implemented");
+    }
+
+    template<class U>
+    static void shrsi(SubProcessor<U>& proc, const Instruction& inst,
+            false_type)
+    {
+        for (int i = 0; i < inst.get_size(); i++)
+        {
+            auto& dest = proc.get_S_ref(inst.get_r(0) + i);
+            auto& source = proc.get_S_ref(inst.get_r(1) + i);
+            dest = source >> inst.get_n();
+        }
     }
 };
 

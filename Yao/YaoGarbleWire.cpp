@@ -14,6 +14,7 @@
 #include "GC/Secret.hpp"
 #include "GC/Thread.hpp"
 #include "GC/ShareSecret.hpp"
+#include "GC/ThreadMaster.hpp"
 #include "YaoCommon.hpp"
 
 void YaoGarbleWire::random()
@@ -94,7 +95,7 @@ void YaoGarbleWire::and_singlethread(GC::Processor<GC::Secret<YaoGarbleWire> >& 
 	garbler.counter += counter - garbler.get_gate_id();
 }
 
-void YaoGarbleWire::and_(GC::Memory<GC::Secret<YaoGarbleWire> >& S,
+void YaoGarbleWire::and_(StackedVector<GC::Secret<YaoGarbleWire> >& S,
 		const vector<int>& args, size_t start, size_t end, size_t,
 		YaoGate* gate, long& counter, PRNG& prng, map<string, Timer>& timers,
 		bool repeat, YaoGarbler& garbler)
@@ -134,7 +135,7 @@ void YaoGarbleWire::and_(GC::Memory<GC::Secret<YaoGarbleWire> >& S,
 				for (int k = 0; k < left; k++)
 				{
 					auto& left_wire = S[*(it + 2) + j].get_reg(k);
-					auto& right_wire = S[*(it + 3) + j].get_reg(
+					auto& right_wire = S[*(it + 3) + (repeat ? 0 : j)].get_reg(
 							repeat ? 0 : k);
 					counter++;
 					YaoGate::E_inputs(labels, left_wire,
@@ -170,7 +171,7 @@ void YaoGarbleWire::inputbvec(GC::Processor<GC::Secret<YaoGarbleWire>>& processo
 {
     auto& garbler = YaoGarbler::s();
     YaoGarbleInput input;
-    processor.inputbvec(input, input_processor, args, garbler.P->my_num());
+    processor.inputbvec(input, input_processor, args, *garbler.P);
 }
 
 inline void YaoGarbler::store_gate(const YaoGate& gate)
@@ -238,10 +239,18 @@ void YaoGarbleWire::convcbit2s(GC::Processor<whole_type>& processor,
 	for (int i = 0; i < DIV_CEIL(instruction.get_n(), unit); i++)
 	{
 		auto& dest = processor.S[instruction.get_r(0) + i];
-		int n = min(unsigned(unit), instruction.get_n() - i * unit);
+		int n = min(size_t(unit), instruction.get_n() - i * unit);
 		dest.resize_regs(n);
 		for (int j = 0; j < n; j++)
 			dest.get_reg(j).public_input(
 					processor.C[instruction.get_r(1) + i].get_bit(j));
 	}
+}
+
+void YaoGarbleWire::run_tapes(const vector<int>& args)
+{
+	auto& garbler = YaoGarbler::s();
+	if (garbler.continuous())
+		garbler.untaint();
+	garbler.master.machine.run_tapes(args);
 }

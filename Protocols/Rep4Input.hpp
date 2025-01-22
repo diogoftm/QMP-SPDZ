@@ -22,6 +22,8 @@ template<class T>
 Rep4Input<T>::~Rep4Input()
 {
     check();
+    for (auto& hash : hashes)
+        assert(hash.size == 0);
 }
 
 template<class T>
@@ -76,6 +78,12 @@ void Rep4Input<T>::exchange()
 template<class T>
 void Rep4Input<T>::check()
 {
+    bool check_needed = false;
+    for (auto& hash : hashes)
+        check_needed |= hash.size != 0;
+    if (not check_needed)
+        return;
+
     octetStream os[2][2];
     for (int i = 0; i < 2; i++)
     {

@@ -7,6 +7,7 @@
 #define OT_BITMATRIX_H_
 
 #include "Tools/intrinsics.h"
+#include "Tools/Exceptions.h"
 
 #include <vector>
 #include <iostream>
@@ -40,6 +41,8 @@ union square128 {
     int16_t doublebytes[128][8];
     int32_t words[128][4];
 
+    square128() {}
+
     bool get_bit(int x, int y)
     { return (bytes[x][y/8] >> (y % 8)) & 1; }
 
@@ -55,6 +58,8 @@ union square128 {
     square128& rsub(square128& other);
     square128& sub(const __m128i* other);
     square128& sub(const void* other) { return sub((__m128i*)other); }
+
+    void bit_sub(const BitVector&, int) { throw not_implemented(); }
 
     void randomize(PRNG& G);
     void randomize(int row, PRNG& G);
@@ -96,9 +101,6 @@ public:
     _Tp*
     allocate(size_t __n, const void* = 0)
     {
-        if (__n > this->max_size())
-            std::__throw_bad_alloc();
-
         _Tp* res = 0;
         int err = posix_memalign((void**)&res, ALIGN, __n * sizeof(_Tp));
         if (err != 0 or res == 0)
@@ -123,6 +125,9 @@ public:
     typedef U PartType;
 
     vector< U, aligned_allocator<U, 32> > squares;
+
+    typename U::RowType& operator[](int i)
+    { return squares[i / U::n_rows()].rows[i % U::n_rows()]; }
 
     size_t vertical_size();
 

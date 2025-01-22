@@ -15,11 +15,14 @@ using namespace std;
 #include "Tools/random.h"
 #include "Tools/PointerVector.h"
 #include "Networking/Player.h"
+#include "Processor/Memory.h"
 
 template<class T> class SubProcessor;
 template<class T> class ReplicatedMC;
 template<class T> class ReplicatedInput;
 template<class T> class Preprocessing;
+template<class T> class SecureShuffle;
+template<class T> class Rep3Shuffler;
 class Instruction;
 
 /**
@@ -28,14 +31,14 @@ class Instruction;
 class ReplicatedBase
 {
 public:
-    array<PRNG, 2> shared_prngs;
+    mutable array<PRNG, 2> shared_prngs;
 
     Player& P;
 
     ReplicatedBase(Player& P);
     ReplicatedBase(Player& P, array<PRNG, 2>& prngs);
 
-    ReplicatedBase branch();
+    ReplicatedBase branch() const;
 
     int get_n_relevant_players() { return P.num_players() - 1; }
 };
@@ -51,19 +54,24 @@ class ProtocolBase
 protected:
     vector<T> random;
 
-    int trunc_pr_counter;
-    int rounds, trunc_rounds;
+    void add_mul(int n);
 
 public:
     typedef T share_type;
 
-    int counter;
+    typedef SecureShuffle<T> Shuffler;
+
+    long trunc_pr_counter;
+    long rounds, trunc_rounds;
+    long dot_counter;
+    long bit_counter;
+    long counter;
+
+    int buffer_size;
 
     ProtocolBase();
     virtual ~ProtocolBase();
 
-    void muls(const vector<int>& reg, SubProcessor<T>& proc, typename T::MAC_Check& MC,
-            int size);
     void mulrs(const vector<int>& reg, SubProcessor<T>& proc);
 
     void multiply(vector<T>& products, vector<pair<T, T>>& multiplicands,
@@ -79,6 +87,7 @@ public:
     virtual void init_mul() = 0;
     /// Schedule multiplication of operand pair
     virtual void prepare_mul(const T& x, const T& y, int n = -1) = 0;
+    virtual void prepare_mult(const T& x, const T& y, int n, bool repeat);
     /// Run multiplication protocol
     virtual void exchange() = 0;
     /// Get next multiplication result
@@ -101,12 +110,12 @@ public:
     { (void) regs, (void) size; (void) proc; throw runtime_error("trunc_pr not implemented"); }
 
     virtual void randoms(T&, int) { throw runtime_error("randoms not implemented"); }
-    virtual void randoms_inst(vector<T>&, const Instruction&);
+    virtual void randoms_inst(StackedVector<T>&, const Instruction&);
 
     template<int = 0>
-    void matmulsm(SubProcessor<T> & proc, CheckVector<T>& source,
-            const Instruction& instruction, int a, int b)
-    { proc.matmulsm(source, instruction, a, b); }
+    void matmulsm(SubProcessor<T> & proc, MemoryPart<T>& source,
+            const Instruction& instruction)
+    { proc.matmulsm(source, instruction.get_start()); }
 
     template<int = 0>
     void conv2ds(SubProcessor<T>& proc, const Instruction& instruction)
@@ -119,6 +128,10 @@ public:
 
     virtual void cisc(SubProcessor<T>&, const Instruction&)
     { throw runtime_error("CISC instructions not implemented"); }
+
+    virtual vector<int> get_relevant_players();
+
+    virtual int get_buffer_size() { return 0; }
 };
 
 /**
@@ -139,12 +152,14 @@ class Replicated : public ReplicatedBase, public ProtocolBase<T>
 public:
     static const bool uses_triples = false;
 
+    typedef Rep3Shuffler<T> Shuffler;
+
     Replicated(Player& P);
     Replicated(const ReplicatedBase& other);
 
     static void assign(T& share, const typename T::clear& value, int my_num)
     {
-        assert(T::length == 2);
+        assert(T::vector_length == 2);
         share.assign_zero();
         if (my_num < 2)
             share[my_num] = value;

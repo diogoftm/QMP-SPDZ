@@ -8,6 +8,7 @@
 #include "Math/gfp.h"
 #include "ECDSA/P256Element.h"
 #include "Protocols/SemiShare.h"
+#include "Protocols/SPDZ.h"
 #include "Processor/BaseMachine.h"
 
 #include "ECDSA/preprocessing.hpp"
@@ -15,6 +16,7 @@
 #include "Protocols/Beaver.hpp"
 #include "Protocols/fake-stuff.hpp"
 #include "Protocols/MascotPrep.hpp"
+#include "Protocols/Hemi.hpp"
 #include "Processor/Processor.hpp"
 #include "Processor/Data_Files.hpp"
 #include "Processor/Input.hpp"
@@ -92,15 +94,15 @@ void run(int argc, const char** argv)
     P256Element::init();
     P256Element::Scalar::next::init_field(P256Element::Scalar::pr(), false);
 
-    BaseMachine machine;
-    machine.ot_setups.push_back({P, true});
-
     P256Element::Scalar keyp;
     SeededPRNG G;
     keyp.randomize(G);
 
     typedef T<P256Element::Scalar> pShare;
     DataPositions usage;
+
+    pShare::MAC_Check::setup(P);
+    T<P256Element>::MAC_Check::setup(P);
 
     OnlineOptions::singleton.batch_size = 1;
     typename pShare::Direct_MC MCp(keyp);
@@ -137,4 +139,8 @@ void run(int argc, const char** argv)
     preprocessing(tuples, n_tuples, sk, proc, opts);
     //check(tuples, sk, keyp, P);
     sign_benchmark(tuples, sk, MCp, P, opts, prep_mul ? 0 : &proc);
+
+    pShare::MAC_Check::teardown();
+    T<P256Element>::MAC_Check::teardown();
+    P256Element::finish();
 }

@@ -65,28 +65,53 @@ template <class T, class U>
 void secure_init(T& setup, Player& P, U& machine,
         int plaintext_length, int sec, FHE_Params& params)
 {
+    assert(sec >= 0);
     machine.sec = sec;
-    sec = max(sec, 40);
-    machine.drown_sec = sec;
+    params.set_min_sec(sec);
     string filename = PREP_DIR + T::name() + "-"
             + to_string(plaintext_length) + "-" + to_string(sec) + "-"
+            + to_string(params.secp()) + "-"
             + to_string(params.get_matrix_dim()) + "-"
             + OnlineOptions::singleton.prime.get_str() + "-"
             + to_string(CowGearOptions::singleton.top_gear()) + "-P"
             + to_string(P.my_num()) + "-" + to_string(P.num_players());
+    string reason;
+    auto base_setup = setup;
+
     try
     {
-        ifstream file(filename);
         octetStream os;
-        os.input(file);
+        os.input(filename);
         os.get(machine.extra_slack);
         setup.unpack(os);
+    }
+    catch (exception& e)
+    {
+        reason = e.what();
+    }
+
+    try
+    {
         setup.check(P, machine);
     }
-    catch (...)
+    catch (mismatch_among_parties& e)
     {
-        cout << "Finding parameters for security " << sec << " and field size ~2^"
-                << plaintext_length << endl;
+        if (reason.empty())
+            reason = e.what();
+    }
+
+    if (not reason.empty())
+    {
+        if (OnlineOptions::singleton.has_option("expect_setup"))
+            throw runtime_error("error in setup: " + reason);
+
+        if (OnlineOptions::singleton.verbose)
+            cerr << "Generating parameters for security " << sec
+                    << " and field size ~2^" << plaintext_length
+                    << " because no suitable material "
+                            "from a previous run was found (" << reason << ")"
+                    << endl;
+        setup = base_setup;
         setup.generate(P, machine, plaintext_length, sec);
         setup.check(P, machine);
         octetStream os;
@@ -94,6 +119,18 @@ void secure_init(T& setup, Player& P, U& machine,
         setup.pack(os);
         ofstream file(filename);
         os.output(file);
+    }
+
+    if (OnlineOptions::singleton.verbose)
+    {
+        cerr << "Ciphertext length: " << params.p0().numBits();
+        for (size_t i = 1; i < params.FFTD().size(); i++)
+            cerr << "+" << params.FFTD()[i].get_prime().numBits();
+        cerr << " (" << DIV_CEIL(params.p0().numBits(), 64);
+        for (size_t i = 1; i < params.FFTD().size(); i++)
+            cerr << "+" << DIV_CEIL(params.FFTD()[i].get_prime().numBits(), 64);
+        cerr << " limbs)";
+        cerr << endl;
     }
 }
 

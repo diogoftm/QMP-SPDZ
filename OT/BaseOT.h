@@ -29,41 +29,37 @@ void send_if_ot_receiver(TwoPartyPlayer* P, vector<octetStream>& os, OT_ROLE rol
 
 class BaseOT
 {
-    static void hash_with_id(BitVector& bits, long id);
-
 public:
 	BitVector receiver_inputs;
-	vector< vector<BitVector> > sender_inputs;
+	vector< array<BitVector, 2> > sender_inputs;
 	vector<BitVector> receiver_outputs;
 	TwoPartyPlayer* P;
-	int nOT, ot_length;
+	int nOT;
 	OT_ROLE ot_role;
 
-	BaseOT(int nOT, int ot_length, TwoPartyPlayer* player, OT_ROLE role=BOTH)
-		: P(player), nOT(nOT), ot_length(ot_length), ot_role(role)
+	BaseOT(int nOT, TwoPartyPlayer* player, OT_ROLE role=BOTH)
+		: P(player), nOT(nOT), ot_role(role)
 	{
 		receiver_inputs.resize(nOT);
-		sender_inputs.resize(nOT, vector<BitVector>(2));
+		sender_inputs.resize(nOT);
 		receiver_outputs.resize(nOT);
-		G_sender.resize(nOT, vector<PRNG>(2));
+		G_sender.resize(nOT);
 		G_receiver.resize(nOT);
 
 		for (int i = 0; i < nOT; i++)
 		{
-			sender_inputs[i][0] = BitVector(8 * AES_BLK_SIZE);
-			sender_inputs[i][1] = BitVector(8 * AES_BLK_SIZE);
-			receiver_outputs[i] = BitVector(8 * AES_BLK_SIZE);
+			sender_inputs[i][0] = BitVector(8 * 16);
+			sender_inputs[i][1] = BitVector(8 * 16);
+			receiver_outputs[i] = BitVector(8 * 16);
 		}
 	}
 
 	BaseOT(TwoPartyPlayer* player, OT_ROLE role) :
-			BaseOT(128, 128, player, role)
+			BaseOT(128, player, role)
 	{
 	}
 
 	virtual ~BaseOT() {}
-
-	int length() { return ot_length; }
 
 	void set_receiver_inputs(const BitVector& new_inputs)
 	{
@@ -87,8 +83,10 @@ public:
 	void extend_length();
 	void check();
 
+    void allocate();
+
 protected:
-	vector< vector<PRNG> > G_sender;
+	vector< array<PRNG, 2> > G_sender;
 	vector<PRNG> G_receiver;
 
 	bool is_sender() { return (bool) (ot_role & SENDER); }
@@ -98,9 +96,9 @@ protected:
 class FakeOT : public BaseOT
 {
 public:
-   FakeOT(int nOT, int ot_length, TwoPartyPlayer* player, OT_ROLE role=BOTH) :
-       BaseOT(nOT, ot_length, player, role) {}
-   void exec_base(bool new_receiver_inputs=true);
+   FakeOT(int nOT, TwoPartyPlayer* player, OT_ROLE role=BOTH) :
+       BaseOT(nOT, player, role) {}
+   void fake_exec_base(bool new_receiver_inputs=true);
 };
 
 #endif

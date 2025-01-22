@@ -8,6 +8,8 @@
 
 #include "Replicated.h"
 
+#include "Tools/Bundle.h"
+
 /**
  * ATLAS protocol (simple version).
  * Uses double sharings to reduce degree of Shamir secret sharing.
@@ -33,6 +35,8 @@ class Atlas : public ProtocolBase<T>
     array<T, 2> get_double_sharing();
 
 public:
+    static const bool uses_triples = false;
+
     Player& P;
 
     Atlas(Player& P) :

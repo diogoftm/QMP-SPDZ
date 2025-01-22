@@ -18,10 +18,10 @@
             *dest++ = *source++) \
     X(STMS, auto source = &Procp.get_S()[r[0]]; auto dest = &Proc.machine.Mp.MS[n], \
             *dest++ = *source++) \
-    X(LDMSI, auto dest = &Procp.get_S()[r[0]]; auto source = &Proc.get_Ci()[r[1]], \
-            *dest++ = Proc.machine.Mp.read_S(*source++)) \
-    X(STMSI, auto source = &Procp.get_S()[r[0]]; auto dest = &Proc.get_Ci()[r[1]], \
-            Proc.machine.Mp.write_S(*dest++, *source++)) \
+    X(LDMSI, Proc.machine.Mp.MS.indirect_read(instruction, Procp.get_S(), Proc.get_Ci()),) \
+    X(STMSI, Proc.machine.Mp.MS.indirect_write(instruction, Procp.get_S(), Proc.get_Ci()),) \
+    X(LDMCI, Proc.machine.Mp.MC.indirect_read(instruction, Procp.get_C(), Proc.get_Ci()),) \
+    X(STMCI, Proc.machine.Mp.MC.indirect_write(instruction, Procp.get_C(), Proc.get_Ci()),) \
     X(MOVS, auto dest = &Procp.get_S()[r[0]]; auto source = &Procp.get_S()[r[1]], \
             *dest++ = *source++) \
     X(ADDS, auto dest = &Procp.get_S()[r[0]]; auto op1 = &Procp.get_S()[r[1]]; \
@@ -62,6 +62,11 @@
     X(SUBCFI, auto dest = &Procp.get_C()[r[0]]; auto op1 = &Procp.get_C()[r[1]]; \
             typename sint::clear op2 = int(n), \
             *dest++ = op2 - *op1++) \
+    X(PREFIXSUMS, auto dest = &Procp.get_S()[r[0]]; auto op1 = &Procp.get_S()[r[1]]; \
+            sint s, \
+            s += *op1++; *dest++ = s) \
+    X(PICKS, auto dest = &Procp.get_S()[r[0]]; auto op1 = &Procp.get_S()[r[1] + r[2]], \
+            *dest++ = *op1; op1 += int(n)) \
     X(MULM, auto dest = &Procp.get_S()[r[0]]; auto op1 = &Procp.get_S()[r[1]]; \
             auto op2 = &Procp.get_C()[r[2]], \
             *dest++ = *op1++ * *op2++) \
@@ -116,10 +121,8 @@
             *dest++ = *source++) \
     X(GSTMS, auto source = &Proc2.get_S()[r[0]]; auto dest = &Proc.machine.M2.MS[n], \
             *dest++ = *source++) \
-    X(GLDMSI, auto dest = &Proc2.get_S()[r[0]]; auto source = &Proc.get_Ci()[r[1]], \
-            *dest++ = Proc.machine.M2.read_S(*source++)) \
-    X(GSTMSI, auto source = &Proc2.get_S()[r[0]]; auto dest = &Proc.get_Ci()[r[1]], \
-            Proc.machine.M2.write_S(*dest++, *source++)) \
+    X(GLDMSI, Proc.machine.M2.MS.indirect_read(instruction, Proc2.get_S(), Proc.get_Ci()),) \
+    X(GSTMSI, Proc.machine.M2.MS.indirect_write(instruction, Proc2.get_S(), Proc.get_Ci()),) \
     X(GMOVS, auto dest = &Proc2.get_S()[r[0]]; auto source = &Proc2.get_S()[r[1]], \
             *dest++ = *source++) \
     X(GADDS, auto dest = &Proc2.get_S()[r[0]]; auto op1 = &Proc2.get_S()[r[1]]; \
@@ -166,10 +169,8 @@
             *dest++ = (*source).get(); source++) \
     X(STMINT, auto dest = &Mi[n]; auto source = &Proc.get_Ci()[r[0]], \
             *dest++ = *source++) \
-    X(LDMINTI, auto dest = &Proc.get_Ci()[r[0]]; auto source = &Ci[r[1]], \
-            *dest++ = Mi[*source].get(); source++) \
-    X(STMINTI, auto dest = &Proc.get_Ci()[r[1]]; auto source = &Ci[r[0]], \
-            Mi[*dest] = *source++; dest++) \
+    X(LDMINTI, Mi.indirect_read(*this, Proc.get_Ci(), Proc.get_Ci()),) \
+    X(STMINTI, Mi.indirect_write(*this, Proc.get_Ci(), Proc.get_Ci()),) \
     X(MOVINT, auto dest = &Proc.get_Ci()[r[0]]; auto source = &Ci[r[1]], \
             *dest++ = *source++) \
     X(PUSHINT, Proc.pushi(Ci[r[0]]),) \
@@ -203,12 +204,12 @@
             *dest++ = *op1++ == *op2++) \
     X(PRINTINT, Proc.out << Proc.read_Ci(r[0]) << flush,) \
     X(PRINTFLOATPREC, Proc.out << setprecision(n),) \
-    X(PRINTSTR, Proc.out << string((char*)&n,sizeof(n)) << flush,) \
+    X(PRINTSTR, Proc.out << string((char*)&n,4) << flush,) \
     X(PRINTCHR, Proc.out << string((char*)&n,1) << flush,) \
     X(SHUFFLE, shuffle(Proc),) \
     X(BITDECINT, bitdecint(Proc),) \
     X(RAND, auto dest = &Ci[r[0]]; auto source = &Ci[r[1]], \
-            *dest++ = Proc.shared_prng.get_uint() % (1 << *source++)) \
+            *dest++ = Proc.shared_prng.get_uint() % (1 << (*source++).get())) \
 
 #define CLEAR_GF2N_INSTRUCTIONS \
     X(GLDI, auto dest = &C2[r[0]]; cgf2n tmp = int(n), \
@@ -217,10 +218,8 @@
             *dest++ = (*source).get(); source++) \
     X(GSTMC, auto dest = &M2C[n]; auto source = &C2[r[0]], \
             *dest++ = *source++) \
-    X(GLDMCI, auto dest = &C2[r[0]]; auto source = &Proc.get_Ci()[r[1]], \
-            *dest++ = M2C[*source++]) \
-    X(GSTMCI, auto dest = &Proc.get_Ci()[r[1]]; auto source = &C2[r[0]], \
-            M2C[*dest++] = *source++) \
+    X(GLDMCI, M2C.indirect_read(*this, C2, Proc.get_Ci()),) \
+    X(GSTMCI, M2C.indirect_write(*this, C2, Proc.get_Ci()),) \
     X(GMOVC, auto dest = &C2[r[0]]; auto source = &C2[r[1]], \
             *dest++ = *source++) \
     X(GADDC, auto dest = &C2[r[0]]; auto op1 = &C2[r[1]]; \
@@ -270,7 +269,7 @@
             *dest++ = *op1++ >> n) \
     X(GPRINTREG, auto source = &C2[r[0]], \
             Proc.out << "Reg[" << r[0] << "] = " << *source++ \
-            << " # " << string((char*)&n,sizeof(n)) << endl) \
+            << " # " << string((char*)&n, 4) << endl) \
     X(GPRINTREGPLAIN, auto source = &C2[r[0]], \
             Proc.out << *source++ << flush) \
     X(GBITDEC, gbitdec(C2),) \
@@ -278,14 +277,12 @@
     X(GCONVGF2N, auto dest = &Proc.get_Ci()[r[0]]; auto source = &C2[r[1]], \
             *dest++ = source->get_word(); source++) \
     X(GRAWOUTPUT, auto source = &C2[r[0]], \
-            (*source++).output(Proc.public_output, false)) \
+            (*source++).output(Proc.get_public_output(), false)) \
 
 #define REMAINING_INSTRUCTIONS \
     X(CONVMODP, throw not_implemented(),) \
     X(LDMC, throw not_implemented(),) \
-    X(LDMCI, throw not_implemented(),) \
     X(STMC, throw not_implemented(),) \
-    X(STMCI, throw not_implemented(),) \
     X(MOVC, throw not_implemented(),) \
     X(DIVC, throw not_implemented(),) \
     X(GDIVC, throw not_implemented(),) \
@@ -380,6 +377,13 @@
     X(PREP, throw not_implemented(),) \
     X(GPREP, throw not_implemented(),) \
     X(CISC, throw not_implemented(),) \
+    X(SECSHUFFLE, throw not_implemented(),) \
+    X(GENSECSHUFFLE, throw not_implemented(),) \
+    X(APPLYSHUFFLE, throw not_implemented(),) \
+    X(DELSHUFFLE, throw not_implemented(),) \
+    X(ACTIVE, throw not_implemented(),) \
+    X(FIXINPUT, throw not_implemented(),) \
+    X(CONCATS, throw not_implemented(),) \
 
 #define ALL_INSTRUCTIONS ARITHMETIC_INSTRUCTIONS REGINT_INSTRUCTIONS \
     CLEAR_GF2N_INSTRUCTIONS REMAINING_INSTRUCTIONS

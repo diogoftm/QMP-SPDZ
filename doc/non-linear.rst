@@ -1,3 +1,5 @@
+.. _nonlinear:
+
 Non-linear Computation
 ----------------------
 
@@ -8,20 +10,34 @@ throughout MP-SPDZ:
 
 Unknown prime modulus
     This approach goes back to `Catrina and de Hoogh
-    <https://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.220.9499&rep=rep1&type=pdf>`_. It crucially relies on
+    <https://www.researchgate.net/profile/Sebastiaan-Hoogh/publication/225092133_Improved_Primitives_for_Secure_Multiparty_Integer_Computation/links/0c960533585ad99868000000/Improved-Primitives-for-Secure-Multiparty-Integer-Computation.pdf>`_. It crucially relies on
     the use of secret random bits in the arithmetic domain. Enough
     such bits allow to mask a secret value so that it is secure to
     reveal the masked value. This can then be split in bits as it is
     public. The public bits and the secret mask bits are then used to
     compute a number of non-linear functions. The same idea has been
     used to implement `fixed-point
-    <https://doi.org/10.1007/978-3-642-15497-3_9>`_ and
+    <https://www.ifca.ai/pub/fc10/31_47.pdf>`_ and
     `floating-point <https://eprint.iacr.org/2012/405>`_ computation.
     We call this method "unknown prime modulus" because it only
     mandates a minimum modulus size for a given cleartext range, which
     is roughly the cleartext bit length plus a statistical security
     parameter. It has the downside that there is implicit enforcement
     of the cleartext range.
+
+    If you want to use this approach with a given prime, do *not*
+    specify the prime during compilation but during execution, that
+    is::
+
+      <protocol>-party.x -P <prime> ...
+
+    or::
+
+      Scripts/<protocol>.sh -P <prime> ...
+
+    If using ``Scripts/compile-run.py``, put it after a double dash::
+
+      Scripts/compile-run.py <compiler-args> -- -P <prime> <execution-options>
 
 Known prime modulus
     `Damgård et al. <https://doi.org/10.1007/11681878_15>`_ have
@@ -38,6 +54,8 @@ Known prime modulus
     al. <https://eprint.iacr.org/2021/119>`_, namely that a random
     :math:`k`-bit number is indistinguishable from a random number
     modulo :math:`p` if the latter is close enough to :math:`2^k`.
+
+    This approach is used if you specify a prime during compilation.
 
 Power-of-two modulus
     In the context of non-linear computation, there are two important
@@ -56,6 +74,10 @@ Power-of-two modulus
     mask-and-reveal approach above to the setting of computation
     modulo a power of two.
 
+See also `this slide deck
+<https://mkskeller.github.io/files/programming.pdf>`_ for an
+introduction to non-linear computation in arithmetic MPC.
+
 
 Mixed-Circuit Computation
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -70,6 +92,12 @@ more general methods such as `daBits
 <https://eprint.iacr.org/2019/207>`_ and `edaBits
 <https://eprint.iacr.org/2020/338>`_.
 
+See also `this slide deck
+<https://mkskeller.github.io/files/mixed.pdf>`_ for an introduction to
+mixed-circuit computation.
+
+
+.. _protocol-pairs:
 
 Protocol Pairs
 ==============

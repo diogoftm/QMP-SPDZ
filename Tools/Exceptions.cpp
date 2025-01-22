@@ -5,20 +5,30 @@
 
 #include "Exceptions.h"
 #include "Math/bigint.h"
+#include "Processor/OnlineOptions.h"
 
-IO_Error::IO_Error(const string& m)
+void exit_error(const string& message)
 {
-    ans = "IO-Error : " + m;
+    if (OnlineOptions::singleton.has_option("throw_exceptions"))
+        throw runtime_error(message);
+
+    cerr << message << endl;
+    exit(1);
 }
 
-file_error::file_error(const string& m)
+IO_Error::IO_Error(const string& m) :
+        ans(m)
 {
-    ans = "File Error : " + m;
 }
 
-Processor_Error::Processor_Error(const string& m)
+file_error::file_error(const string& m) :
+        ans(m)
 {
-    msg = "Processor-Error : " + m;
+}
+
+Processor_Error::Processor_Error(const string& m) :
+        msg(m)
+{
 }
 
 Processor_Error::Processor_Error(const char* m) :
@@ -36,7 +46,11 @@ wrong_gfp_size::wrong_gfp_size(const char* name, const bigint& p,
 }
 
 overflow::overflow(const string& name, size_t i, size_t n) :
-        runtime_error(name + " overflow: " + to_string(i) + "/" + to_string(n))
+    runtime_error(
+        name + " overflow: " + to_string(long(i)) + "/" + to_string(n)
+            + ((long(i) < 0) ? ". A negative value indicates that "
+                               "the computation modulus might be too small" :
+                               ""))
 {
 }
 
@@ -81,5 +95,49 @@ not_enough_to_buffer::not_enough_to_buffer(const string& type, const string& fil
                                 "Maybe insufficient preprocessing" + type
                         + ".\nFor benchmarking, you can activate reusing data by "
                                 "adding -DINSECURE to the compiler options.")
+{
+}
+
+gf2n_not_supported::gf2n_not_supported(int n, string options) :
+        runtime_error(
+                "GF(2^" + to_string(n) + ") not supported"
+                        + (options.empty() ? "" : ", options are " + options))
+{
+}
+
+setup_error::setup_error(const string& error) :
+        runtime_error(error)
+{
+}
+
+prep_setup_error::prep_setup_error(const string& error, int nplayers,
+        const string& fake_opts) :
+        setup_error(
+                "Something is wrong with the preprocessing data on disk: "
+                        + error
+                        + "\nHave you run the right program for generating it, "
+                                "such as './Fake-Offline.x "
+                        + to_string(nplayers) + fake_opts + "'?")
+{
+}
+
+insufficient_shares::insufficient_shares(int expected, int actual, exception& e) :
+        runtime_error(
+                "expected " + to_string(expected) + " shares but only got "
+                        + to_string(actual) + " (" + e.what() + ")")
+{
+}
+
+persistence_error::persistence_error(const string& error) :
+        runtime_error(
+                "Error while reading from persistence file. "
+                "You need to write to it first. "
+                "See https://mp-spdz.readthedocs.io/en/latest/io.html#persistence. "
+                "Details: " + error)
+{
+}
+
+bytecode_error::bytecode_error(const string& error) :
+        runtime_error(error)
 {
 }

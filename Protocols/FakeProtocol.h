@@ -7,11 +7,57 @@
 #define PROTOCOLS_FAKEPROTOCOL_H_
 
 #include "Replicated.h"
+#include "SecureShuffle.h"
 #include "Math/Z2k.h"
 #include "Processor/Instruction.h"
 #include "Processor/TruncPrTuple.h"
 
 #include <cmath>
+
+template<class T>
+class FakeShuffle
+{
+public:
+    typedef ShuffleStore<int> store_type;
+
+    map<long, long> stats;
+
+    FakeShuffle(SubProcessor<T>&)
+    {
+    }
+
+    FakeShuffle(StackedVector<T>& a, size_t n, int unit_size, size_t output_base,
+            size_t input_base, SubProcessor<T>&)
+    {
+        apply(a, n, unit_size, output_base, input_base, 0, 0);
+    }
+
+    size_t generate(size_t, store_type& store)
+    {
+        return store.add();
+    }
+
+    void apply(StackedVector<T>& a, size_t n, int unit_size, size_t output_base,
+            size_t input_base, int, bool)
+    {
+        auto source = a.begin() + input_base;
+        auto dest = a.begin() + output_base;
+        for (size_t i = 0; i < n; i++)
+            // just copy
+            *dest++ = *source++;
+
+        if (n > 1)
+        {
+            // swap first two to pass check
+            for (int i = 0; i < unit_size; i++)
+                swap(a[output_base + i], a[output_base + i + unit_size]);
+        }
+    }
+
+    void inverse_permutation(StackedVector<T>&, size_t, size_t, size_t)
+    {
+    }
+};
 
 template<class T>
 class FakeProtocol : public ProtocolBase<T>
@@ -28,8 +74,11 @@ class FakeProtocol : public ProtocolBase<T>
     vector<size_t> trunc_stats;
 
     map<string, size_t> cisc_stats;
+    map<int, size_t> ltz_stats;
 
 public:
+    typedef FakeShuffle<T> Shuffler;
+
     Player& P;
 
     FakeProtocol(Player& P) :
@@ -54,6 +103,8 @@ public:
         {
             cerr << x.second << " " << x.first << endl;
         }
+        for (auto& x : ltz_stats)
+            cerr << "LTZ " << x.first << ": " << x.second << endl;
     }
 
     template<int>
@@ -219,8 +270,9 @@ public:
         {
             for (size_t i = 0; i < args.size(); i += args[i])
             {
+                ltz_stats[args[i + 4]] += args[i + 1];
                 assert(i + args[i] <= args.size());
-                assert(args[i] == 6);
+                assert(args[i] >= 5);
                 for (int j = 0; j < args[i + 1]; j++)
                 {
                     auto& res = processor.get_S()[args[i + 2] + j];
@@ -229,15 +281,28 @@ public:
                 }
             }
         }
+        else if (tag == string("EQZ\0", 4))
+        {
+            for (size_t i = 0; i < args.size(); i += args[i])
+            {
+                assert(i + args[i] <= args.size());
+                assert(args[i] >= 5);
+                for (int j = 0; j < args[i + 1]; j++)
+                {
+                    auto& res = processor.get_S()[args[i + 2] + j];
+                    res = processor.get_S()[args[i + 3] + j] == 0;
+                }
+            }
+        }
         else if (tag == "Trun")
         {
             for (size_t i = 0; i < args.size(); i += args[i])
             {
                 assert(i + args[i] <= args.size());
-                assert(args[i] == 8);
+                assert(args[i] == 7);
                 int k = args[i + 4];
                 int m = args[i + 5];
-                int s = args[i + 7];
+                int s = args[i + 6];
                 assert((s == 0) or (s == 1));
                 for (int j = 0; j < args[i + 1]; j++)
                 {

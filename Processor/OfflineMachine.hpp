@@ -18,11 +18,19 @@ OfflineMachine<W>::OfflineMachine(int argc, const char** argv,
         W(argc, argv, opt, online_opts, V(), nplayers), playerNames(
                 W::playerNames), P(*this->new_player("machine"))
 {
-    machine.load_schedule(online_opts.progname, false);
+    load_schedule(online_opts.progname, false);
     Program program(playerNames.num_players());
-    program.parse(machine.bc_filenames[0]);
+    program.parse(bc_filenames[0]);
+    progs.push_back(program);
+
+    if (program.usage_unknown())
+    {
+        cerr << "Preprocessing will be insufficient "
+                << "due to unknown requirements" << endl;
+        exit(1);
+    }
+
     usage = program.get_offline_data_used();
-    machine.ot_setups.push_back({P});
 }
 
 template<class W>
@@ -36,12 +44,19 @@ template<class T, class U>
 int OfflineMachine<W>::run()
 {
     T::clear::init_default(this->online_opts.prime_length());
-    U::clear::init_field(U::clear::default_degree());
-    T::bit_type::mac_key_type::init_field();
+    Machine<T, U>::init_binary_domains(this->online_opts.security_parameter,
+            this->lg2);
     auto binary_mac_key = read_generate_write_mac_key<
             typename T::bit_type::part_type>(P);
     typename T::bit_type::LivePrep bit_prep(usage);
     GC::ShareThread<typename T::bit_type> thread(bit_prep, P, binary_mac_key);
+
+    // setup before generation to fix prime
+    T::LivePrep::basic_setup(P);
+
+    T::MAC_Check::setup(P);
+    T::bit_type::MAC_Check::setup(P);
+    U::MAC_Check::setup(P);
 
     generate<T>();
     generate<typename T::bit_type::part_type>();
@@ -49,7 +64,17 @@ int OfflineMachine<W>::run()
 
     thread.MC->Check(P);
 
+    T::MAC_Check::teardown();
+    T::bit_type::MAC_Check::teardown();
+    U::MAC_Check::teardown();
+
     return 0;
+}
+
+template<class W>
+int OfflineMachine<W>::buffered_total(size_t required, size_t batch)
+{
+    return DIV_CEIL(required, batch) * batch + (nthreads - 1) * batch;
 }
 
 template<class W>
@@ -79,7 +104,7 @@ void OfflineMachine<W>::generate()
             if (i == DATA_DABIT)
             {
                 for (long long j = 0;
-                        j < DIV_CEIL(my_usage, BUFFER_SIZE) * BUFFER_SIZE; j++)
+                        j < buffered_total(my_usage, BUFFER_SIZE); j++)
                 {
                     T a;
                     typename T::bit_type b;
@@ -87,11 +112,11 @@ void OfflineMachine<W>::generate()
                     dabit<T>(a, b).output(out, false);
                 }
             }
-            else
+            else if (not (i == DATA_RANDOM or i == DATA_OPEN))
             {
                 vector<T> tuple(DataPositions::tuple_size[i]);
                 for (long long j = 0;
-                        j < DIV_CEIL(my_usage, BUFFER_SIZE) * BUFFER_SIZE; j++)
+                        j < buffered_total(my_usage, BUFFER_SIZE); j++)
                 {
                     preprocessing.get(dtype, tuple.data());
                     for (auto& x : tuple)
@@ -103,9 +128,12 @@ void OfflineMachine<W>::generate()
             remove(filename.c_str());
     }
 
+    long additional_inputs = Sub_Data_Files<T>::additional_inputs(usage);
+
     for (int i = 0; i < P.num_players(); i++)
     {
-        auto n_inputs = usage.inputs[i][T::clear::field_type()];
+        auto n_inputs = usage.inputs[i][T::clear::field_type()]
+                + additional_inputs;
         string filename = Sub_Data_Files<T>::get_input_filename(playerNames, i, 0);
         if (n_inputs > 0)
         {
@@ -113,7 +141,7 @@ void OfflineMachine<W>::generate()
             file_signature<T>().output(out);
             InputTuple<T> tuple;
             for (long long j = 0;
-                    j < DIV_CEIL(n_inputs, BUFFER_SIZE) * BUFFER_SIZE; j++)
+                    j < buffered_total(n_inputs, BUFFER_SIZE); j++)
             {
                 preprocessing.get_input(tuple.share, tuple.value, i);
                 tuple.share.output(out, false);
@@ -142,8 +170,10 @@ void OfflineMachine<W>::generate()
             {
                 ofstream out(filename, ios::binary);
                 file_signature<T>().output(out);
-                for (int i = 0; i < DIV_CEIL(total, batch) * batch; i++)
-                    preprocessing.template get_edabitvec<0>(true, n_bits).output(n_bits,
+                auto& opts = OnlineOptions::singleton;
+                opts.batch_size = DIV_CEIL(opts.batch_size, batch) * batch;
+                for (int i = 0; i < buffered_total(total, batch) / batch; i++)
+                    preprocessing.get_edabitvec(true, n_bits).output(n_bits,
                             out);
             }
             else
@@ -152,6 +182,12 @@ void OfflineMachine<W>::generate()
     }
 
     output.Check(P);
+}
+
+template<class W>
+const Names& OfflineMachine<W>::get_N()
+{
+    return playerNames;
 }
 
 #endif /* PROCESSOR_OFFLINEMACHINE_HPP_ */

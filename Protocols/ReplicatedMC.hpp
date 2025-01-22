@@ -28,12 +28,13 @@ void ReplicatedMC<T>::POpen_Begin(vector<typename T::open_type>&,
 template<class T>
 void ReplicatedMC<T>::prepare(const vector<T>& S)
 {
-    assert(T::length == 2);
+    assert(T::vector_length == 2);
     o.reset_write_head();
     to_send.reset_write_head();
     to_send.reserve(S.size() * T::value_type::size());
     for (auto& x : S)
         x[0].pack(to_send);
+    this->values_opened += S.size();
 }
 
 template<class T>
@@ -65,10 +66,18 @@ void ReplicatedMC<T>::finalize(vector<typename T::open_type>& values,
 }
 
 template<class T>
-typename T::open_type ReplicatedMC<T>::finalize_open()
+typename T::open_type ReplicatedMC<T>::finalize_raw()
 {
     auto a = this->secrets.next().sum();
     return a + o.get<typename T::open_type>();
+}
+
+template<class T>
+array<typename T::open_type*, 2> ReplicatedMC<T>::finalize_several(size_t n)
+{
+    if (this->values.empty())
+        finalize(this->values, this->secrets);
+    return MAC_Check_Base<T>::finalize_several(n);
 }
 
 #endif

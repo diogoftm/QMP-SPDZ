@@ -15,11 +15,11 @@ from functools import reduce
 class BlockAllocator:
     """ Manages freed memory blocks. """
     def __init__(self):
-        self.by_logsize = [defaultdict(set) for i in range(32)]
+        self.by_logsize = [defaultdict(set) for i in range(64)]
         self.by_address = {}
 
     def by_size(self, size):
-        if size >= 2 ** 32:
+        if size >= 2 ** 64:
             raise CompilerError('size exceeds addressing capability')
         return self.by_logsize[int(math.log(size, 2))][size]
 
@@ -43,7 +43,7 @@ class BlockAllocator:
             else:
                 done = False
                 for x in self.by_logsize[logsize + 1:]:
-                    for block_size, addresses in x.items():
+                    for block_size, addresses in sorted(x.items()):
                         if len(addresses) > 0:
                             done = True
                             break
@@ -60,16 +60,106 @@ class BlockAllocator:
                 self.by_address[addr + size] = diff
             return addr
 
+class AllocRange:
+    def __init__(self, base=0):
+        self.base = base
+        self.top = base
+        self.limit = base
+        self.grow = True
+        self.pool = defaultdict(set)
+
+    def alloc(self, size):
+        if self.pool[size]:
+            return self.pool[size].pop()
+        elif self.grow or self.top + size <= self.limit:
+            res = self.top
+            self.top += size
+            self.limit = max(self.limit, self.top)
+            if res >= REG_MAX:
+                raise RegisterOverflowError(size)
+            return res
+
+    def free(self, base, size):
+        assert self.base <= base < self.top
+        self.pool[size].add(base)
+
+    def stop_growing(self):
+        self.grow = False
+
+    def consolidate(self):
+        regs = []
+        for size, pool in self.pool.items():
+            for base in pool:
+                regs.append((base, size))
+        for base, size in reversed(sorted(regs)):
+            if base + size == self.top:
+                self.top -= size
+                self.pool[size].remove(base)
+                regs.pop()
+            else:
+                if program.Program.prog.verbose:
+                    print('cannot free %d register blocks '
+                          'by a gap of %d at %d' %
+                          (len(regs), self.top - size - base, base))
+                break
+
+class AllocPool:
+    def __init__(self, parent=None):
+        self.ranges = defaultdict(lambda: [AllocRange()])
+        self.by_base = {}
+        self.parent = parent
+
+    def alloc(self, reg_type, size):
+        for r in self.ranges[reg_type]:
+            res = r.alloc(size)
+            if res is not None:
+                self.by_base[reg_type, res] = r
+                return res
+
+    def free(self, reg):
+        try:
+            r = self.by_base.pop((reg.reg_type, reg.i))
+            r.free(reg.i, reg.size)
+        except KeyError:
+            try:
+                self.parent.free(reg)
+            except:
+                if program.Program.prog.options.debug:
+                    print('Error with freeing register with trace:')
+                    print(util.format_trace(reg.caller))
+                    print()
+
+    def new_ranges(self, min_usage):
+        for t, n in min_usage.items():
+            r = self.ranges[t][-1]
+            assert (n >= r.limit)
+            if r.limit < n:
+                r.stop_growing()
+                self.ranges[t].append(AllocRange(n))
+
+    def consolidate(self):
+        for r in self.ranges.values():
+            for rr in r:
+                rr.consolidate()
+
+    def n_fragments(self):
+        if self.ranges:
+            return max(len(r) for r in self.ranges)
+        else:
+            return 0
+
 class StraightlineAllocator:
     """Allocate variables in a straightline program using n registers.
     It is based on the precondition that every register is only defined once."""
     def __init__(self, n, program):
         self.alloc = dict_by_id()
-        self.usage = Compiler.program.RegType.create_dict(lambda: 0)
+        self.max_usage = defaultdict(lambda: 0)
         self.defined = dict_by_id()
         self.dealloc = set_by_id()
-        self.n = n
+        assert(n == REG_MAX)
         self.program = program
+        self.old_pool = None
+        self.unused = defaultdict(lambda: 0)
 
     def alloc_reg(self, reg, free):
         base = reg.vectorbase
@@ -79,14 +169,7 @@ class StraightlineAllocator:
 
         reg_type = reg.reg_type
         size = base.size
-        if free[reg_type, size]:
-            res = free[reg_type, size].pop()
-        else:
-            if self.usage[reg_type] < self.n:
-                res = self.usage[reg_type]
-                self.usage[reg_type] += size
-            else:
-                raise RegisterOverflowError()
+        res = free.alloc(reg_type, size)
         self.alloc[base] = res
 
         base.i = self.alloc[base]
@@ -95,12 +178,15 @@ class StraightlineAllocator:
             dup = dup.vectorbase
             self.alloc[dup] = self.alloc[base]
             dup.i = self.alloc[base]
+            if not dup.dup_count:
+                dup.dup_count = len(base.duplicates)
 
     def dealloc_reg(self, reg, inst, free):
         if reg.vector:
             self.dealloc |= reg.vector
         else:
             self.dealloc.add(reg)
+        reg.duplicates.remove(reg)
         base = reg.vectorbase
 
         seen = set_by_id()
@@ -125,7 +211,9 @@ class StraightlineAllocator:
                 for x in itertools.chain(dup.duplicates, base.duplicates):
                     to_check.add(x)
 
-        free[reg.reg_type, base.size].append(self.alloc[base])
+        if reg not in self.program.base_addresses \
+           and not isinstance(inst, call_arg):
+            free.free(base)
         if inst.is_vec() and base.vector:
             self.defined[base] = inst
             for i in base.vector:
@@ -134,6 +222,7 @@ class StraightlineAllocator:
             self.defined[reg] = inst
 
     def process(self, program, alloc_pool):
+        self.update_usage(alloc_pool)
         for k,i in enumerate(reversed(program)):
             unused_regs = []
             for j in i.get_def():
@@ -149,8 +238,11 @@ class StraightlineAllocator:
             if unused_regs and len(unused_regs) == len(list(i.get_def())) and \
                self.program.verbose:
                 # only report if all assigned registers are unused
-                print("Register(s) %s never used, assigned by '%s' in %s" % \
-                    (unused_regs,i,format_trace(i.caller)))
+                self.unused[type(i).__name__] += 1
+                if self.program.verbose > 1:
+                    print(
+                        "Register(s) %s never used, assigned by '%s' in %s" % \
+                        (unused_regs,i,format_trace(i.caller)))
 
             for j in i.get_used():
                 self.alloc_reg(j, alloc_pool)
@@ -160,23 +252,54 @@ class StraightlineAllocator:
             if k % 1000000 == 0 and k > 0:
                 print("Allocated registers for %d instructions at" % k, time.asctime())
 
+        self.update_max_usage(alloc_pool)
+        alloc_pool.consolidate()
+
         # print "Successfully allocated registers"
         # print "modp usage: %d clear, %d secret" % \
         #     (self.usage[Compiler.program.RegType.ClearModp], self.usage[Compiler.program.RegType.SecretModp])
         # print "GF2N usage: %d clear, %d secret" % \
         #     (self.usage[Compiler.program.RegType.ClearGF2N], self.usage[Compiler.program.RegType.SecretGF2N])
-        return self.usage
+        return self.max_usage
+
+    def update_max_usage(self, alloc_pool):
+        for t, r in alloc_pool.ranges.items():
+            self.max_usage[t] = max(self.max_usage[t], r[-1].limit)
+
+    def update_usage(self, alloc_pool):
+        if self.old_pool:
+            self.update_max_usage(self.old_pool)
+        if id(self.old_pool) != id(alloc_pool):
+            alloc_pool.new_ranges(self.max_usage)
+            self.old_pool = alloc_pool
 
     def finalize(self, options):
         for reg in self.alloc:
             for x in reg.get_all():
                 if x not in self.dealloc and reg not in self.dealloc \
-                   and len(x.duplicates) == 1:
-                    print('Warning: read before write at register', x)
+                   and len(x.duplicates) == x.dup_count:
+                    print('Warning: read before write at register %s/%x' % 
+                          (x, id(x)))
                     print('\tregister trace: %s' % format_trace(x.caller,
                                                                 '\t\t'))
                     if options.stop:
                         sys.exit(1)
+        if self.program.verbose:
+            def p(sizes):
+                total = defaultdict(lambda: 0)
+                for (t, size) in sorted(sizes):
+                    n = sizes[t, size]
+                    total[t] += size * n
+                    print('%s:%d*%d' % (t, size, n), end=' ')
+                print()
+                print('Total:', dict(total))
+
+            sizes = defaultdict(lambda: 0)
+            for reg in self.alloc:
+                x = reg.reg_type, reg.size
+            print('Used registers: ', end='')
+            p(sizes)
+            print('Unused instructions:', dict(self.unused))
 
 def determine_scope(block, options):
     last_def = defaultdict_by_id(lambda: -1)
@@ -261,6 +384,7 @@ class Merger:
         instructions = self.instructions
         merge_nodes = self.open_nodes
         depths = self.depths
+        self.req_num = defaultdict(lambda: 0)
         if not merge_nodes:
             return 0
 
@@ -281,6 +405,7 @@ class Merger:
                 print('Merging %d %s in round %d/%d' % \
                     (len(merge), t.__name__, i, len(merges)))
             self.do_merge(merge)
+            self.req_num[t.__name__, 'round'] += 1
 
         preorder = None
 
@@ -310,15 +435,16 @@ class Merger:
 
         reg_nodes = {}
         last_def = defaultdict_by_id(lambda: -1)
+        last_read = defaultdict_by_id(list)
         last_mem_write = []
         last_mem_read = []
-        warned_about_mem = []
         last_mem_write_of = defaultdict(list)
         last_mem_read_of = defaultdict(list)
         last_print_str = None
         last = defaultdict(lambda: defaultdict(lambda: None))
         last_open = deque()
         last_input = defaultdict(lambda: [None, None])
+        mem_scopes = defaultdict_by_id(lambda: MemScope())
 
         depths = [0] * len(block.instructions)
         self.depths = depths
@@ -327,8 +453,16 @@ class Merger:
         self.sources = []
         self.real_depths = [0] * len(block.instructions)
         round_type = {}
+        shuffles = defaultdict_by_id(set)
+
+        class MemScope:
+            def __init__(self):
+                self.read = []
+                self.write = []
 
         def add_edge(i, j):
+            if i in (-1, j):
+                return
             G.add_edge(i, j)
             for d in (self.depths, self.real_depths):
                 if d[j] < d[i]:
@@ -336,10 +470,15 @@ class Merger:
 
         def read(reg, n):
             for dup in reg.duplicates:
-                if last_def[dup] != -1:
+                if last_def[dup] not in (-1, n):
                     add_edge(last_def[dup], n)
+            last_read[reg].append(n)
 
         def write(reg, n):
+            for dup in reg.duplicates:
+                add_edge(last_def[dup], n)
+                for m in last_read[dup]:
+                    add_edge(m, n)
             last_def[reg] = n
 
         def handle_mem_access(addr, reg_type, last_access_this_kind,
@@ -361,20 +500,22 @@ class Merger:
                     addr_i = addr + i
                     handle_mem_access(addr_i, reg_type, last_access_this_kind,
                                       last_access_other_kind)
-                if block.warn_about_mem and not warned_about_mem and \
-                   (instr.get_size() > 100):
+                if block.warn_about_mem and \
+                   not block.parent.warned_about_mem and \
+                   (instr.get_size() > 100) and not instr._protect:
                     print('WARNING: Order of memory instructions ' \
                         'not preserved due to long vector, errors possible')
-                    warned_about_mem.append(True)
+                    block.parent.warned_about_mem = True
             else:
                 handle_mem_access(addr, reg_type, last_access_this_kind,
                                   last_access_other_kind)
-            if block.warn_about_mem and not warned_about_mem and \
-               not isinstance(instr, DirectMemoryInstruction):
+            if block.warn_about_mem and \
+               not block.parent.warned_about_mem and \
+               not isinstance(instr, DirectMemoryInstruction) and \
+               not instr._protect:
                 print('WARNING: Order of memory instructions ' \
                     'not preserved, errors possible')
-                # hack
-                warned_about_mem.append(True)
+                block.parent.warned_about_mem = True
 
         def strict_mem_access(n, last_this_kind, last_other_kind):
             if last_other_kind and last_this_kind and \
@@ -425,13 +566,6 @@ class Merger:
             # if options.debug:
             #     col = colordict[instr.__class__.__name__]
             #     G.add_node(n, color=col, label=str(instr))
-            for reg in inputs:
-                if reg.vector and instr.is_vec():
-                    for i in reg.vector:
-                        read(i, n)
-                else:
-                    read(reg, n)
-
             for reg in outputs:
                 if reg.vector and instr.is_vec():
                     for i in reg.vector:
@@ -439,11 +573,83 @@ class Merger:
                 else:
                     write(reg, n)
 
+            for reg in inputs:
+                if reg.vector and instr.is_vec():
+                    for i in reg.vector:
+                        read(i, n)
+                else:
+                    read(reg, n)
+
             # will be merged
             if isinstance(instr, TextInputInstruction):
                 keep_text_order(instr, n)
             elif isinstance(instr, RawInputInstruction):
                 keep_merged_order(instr, n, RawInputInstruction)
+            elif isinstance(instr, matmulsm):
+                if options.preserve_mem_order:
+                    strict_mem_access(n, last_mem_read, last_mem_write)
+                else:
+                    if instr.indices_values is not None and instr.first_factor_base_addresses is not None and instr.second_factor_base_addresses is not None:
+                        # Determine which values get accessed by the MATMULSM instruction and only add the according dependencies.
+                        for matmul_idx in range(len(instr.first_factor_base_addresses)):
+                            start_time = time.time()
+                            first_base = instr.first_factor_base_addresses[matmul_idx]
+                            second_base = instr.second_factor_base_addresses[matmul_idx]
+
+                            first_factor_row_indices = instr.indices_values[4 * matmul_idx]
+                            first_factor_column_indices = instr.indices_values[4 * matmul_idx + 1]
+                            second_factor_row_indices = instr.indices_values[4 * matmul_idx + 2]
+                            second_factor_column_indices = instr.indices_values[4 * matmul_idx + 3]
+
+                            first_factor_row_length = instr.args[12 * matmul_idx + 10]
+                            second_factor_row_length = instr.args[12 * matmul_idx + 11]
+
+                            # Due to the potentially very large number of inputs on large matrices, adding dependencies to
+                            # all inputs may take a long time. Therefore, we only partially build the dependencies on
+                            # large matrices and output a warning.
+                            # The threshold of 2_250_000 values per matrix is equivalent to multiplying two 1500x1500
+                            # matrices. Experiments showed that multiplying two 1700x1700 matrices requires roughly 10 seconds on an i7-1370P,
+                            # so this threshold should lead to acceptable compile times even on slower processors.
+                            first_factor_total_number_of_values = instr.args[12 * matmul_idx + 3] * instr.args[12 * matmul_idx + 4]
+                            second_factor_total_number_of_values = instr.args[12 * matmul_idx + 4] * instr.args[12 * matmul_idx + 5]
+                            max_dependencies_per_matrix = \
+                                self.block.parent.program.budget
+                            if first_factor_total_number_of_values > max_dependencies_per_matrix or second_factor_total_number_of_values > max_dependencies_per_matrix:
+                                if block.warn_about_mem and not block.parent.warned_about_mem:
+                                    print('WARNING: Order of memory instructions not preserved due to long vector, errors possible')
+                                    block.parent.warned_about_mem = True
+
+                            # Add dependencies to the first factor.
+                            # If the size of the matrix exceeds the max_dependencies_per_matrix, only a limited number
+                            # of rows will be processed.
+                            for i in range(min(instr.args[12 * matmul_idx + 3], max_dependencies_per_matrix // instr.args[12 * matmul_idx + 4] + 1)):
+                                for k in range(instr.args[12 * matmul_idx + 4]):
+                                    first_factor_addr = first_base + \
+                                                        first_factor_row_length * first_factor_row_indices[i] + \
+                                                        first_factor_column_indices[k]
+                                    handle_mem_access(first_factor_addr, 's', last_mem_read_of, last_mem_write_of)
+
+                            # Add dependencies to the second factor.
+                            # If the size of the matrix exceeds the max_dependencies_per_matrix, only a limited number
+                            # of rows will be processed.
+                            for k in range(min(instr.args[12 * matmul_idx + 4], max_dependencies_per_matrix // instr.args[12 * matmul_idx + 5] + 1)):
+                                if (time.time() - start_time) > 10:
+                                    # Abort building the dependencies if that takes too much time.
+                                    if block.warn_about_mem and not block.parent.warned_about_mem:
+                                        print('WARNING: Order of memory instructions not preserved due to long vector, errors possible')
+                                        block.parent.warned_about_mem = True
+                                    break
+
+                                for j in range(instr.args[12 * matmul_idx + 5]):
+                                    second_factor_addr = second_base + \
+                                                         second_factor_row_length * second_factor_row_indices[k] + \
+                                                         second_factor_column_indices[j]
+                                    handle_mem_access(second_factor_addr, 's', last_mem_read_of, last_mem_write_of)
+                    else:
+                        # If the accessed values cannot be determined, be cautious I guess.
+                        for i in last_mem_write_of.values():
+                            for j in i:
+                                add_edge(j, n)
 
             if isinstance(instr, merge_classes):
                 open_nodes.add(n)
@@ -472,31 +678,35 @@ class Merger:
             if isinstance(instr, ReadMemoryInstruction):
                 if options.preserve_mem_order:
                     strict_mem_access(n, last_mem_read, last_mem_write)
-                else:
+                elif instr._protect:
+                    scope = mem_scopes[instr._protect]
+                    strict_mem_access(n, scope.read, scope.write)
+                if not options.preserve_mem_order:
                     mem_access(n, instr, last_mem_read_of, last_mem_write_of)
             elif isinstance(instr, WriteMemoryInstruction):
                 if options.preserve_mem_order:
                     strict_mem_access(n, last_mem_write, last_mem_read)
-                else:
+                elif instr._protect:
+                    scope = mem_scopes[instr._protect]
+                    strict_mem_access(n, scope.write, scope.read)
+                if not options.preserve_mem_order:
                     mem_access(n, instr, last_mem_write_of, last_mem_read_of)
-            elif isinstance(instr, matmulsm):
-                if options.preserve_mem_order:
-                    strict_mem_access(n, last_mem_read, last_mem_write)
-                else:
-                    for i in last_mem_write_of.values():
-                        for j in i:
-                            add_edge(j, n)
             # keep I/O instructions in order
             elif isinstance(instr, IOInstruction):
                 if last_print_str is not None:
                     add_edge(last_print_str, n)
                 last_print_str = n
             elif isinstance(instr, PublicFileIOInstruction):
-                keep_order(instr, n, instr.__class__)
+                keep_order(instr, n, PublicFileIOInstruction)
             elif isinstance(instr, prep_class):
                 keep_order(instr, n, instr.args[0])
             elif isinstance(instr, StackInstruction):
                 keep_order(instr, n, StackInstruction)
+            elif isinstance(instr, applyshuffle):
+                shuffles[instr.args[3]].add(n)
+            elif isinstance(instr, delshuffle):
+                for i_inst in shuffles[instr.args[0]]:
+                    add_edge(i_inst, n)
 
             if not G.pred[n]:
                 self.sources.append(n)
@@ -530,7 +740,9 @@ class Merger:
             can_eliminate_defs = True
             for reg in inst.get_def():
                 for dup in reg.duplicates:
-                    if not dup.can_eliminate:
+                    if not (dup.can_eliminate and reduce(
+                            operator.and_,
+                            (x.can_eliminate for x in dup.vector), True)):
                         can_eliminate_defs = False
                         break
             # remove if instruction has result that isn't used
@@ -541,22 +753,12 @@ class Merger:
                 G.remove_node(i)
                 merge_nodes.discard(i)
                 stats[type(instructions[i]).__name__] += 1
+                for reg in instructions[i].get_def():
+                    self.block.parent.program.base_addresses.pop(reg)
                 instructions[i] = None
             if unused_result:
                 eliminate(i)
                 count += 1
-            # remove unnecessary stack instructions
-            # left by optimization with budget
-            if isinstance(inst, popint_class) and \
-               (not G.degree(i) or (G.degree(i) == 1 and
-                isinstance(instructions[list(G[i])[0]], StackInstruction))) \
-                and \
-               inst.args[0].can_eliminate and \
-               len(G.pred[i]) == 1 and \
-               isinstance(instructions[list(G.pred[i])[0]], pushint_class):
-                eliminate(list(G.pred[i])[0])
-                eliminate(i)
-                count += 2
         if count > 0 and self.block.parent.program.verbose:
             print('Eliminated %d dead instructions, among which %d opens: %s' \
                 % (count, open_count, dict(stats)))
@@ -580,11 +782,25 @@ class Merger:
 class RegintOptimizer:
     def __init__(self):
         self.cache = util.dict_by_id()
+        self.offset_cache = util.dict_by_id()
+        self.rev_offset_cache = {}
+        self.range_cache = util.dict_by_id()
 
-    def run(self, instructions):
+    def add_offset(self, res, new_base, new_offset, multiplier):
+        self.offset_cache[res] = new_base, new_offset, multiplier
+        if (new_base.i, new_offset, multiplier) not in self.rev_offset_cache:
+            self.rev_offset_cache[new_base.i, new_offset, multiplier] = res
+
+    def run(self, instructions, program):
         for i, inst in enumerate(instructions):
             if isinstance(inst, ldint_class):
                 self.cache[inst.args[0]] = inst.args[1]
+            elif isinstance(inst, incint):
+                if inst.args[2] == 1 and inst.args[3] == 1 and \
+                   inst.args[4] == len(inst.args[0]) and \
+                   inst.args[1] in self.cache:
+                    self.range_cache[inst.args[0]] = \
+                        len(inst.args[0]), self.cache[inst.args[1]]
             elif isinstance(inst, IntegerInstruction):
                 if inst.args[1] in self.cache and inst.args[2] in self.cache:
                     res = inst.op(self.cache[inst.args[1]],
@@ -593,9 +809,49 @@ class RegintOptimizer:
                         self.cache[inst.args[0]] = res
                         instructions[i] = ldint(inst.args[0], res,
                                                 add_to_prog=False)
+                elif isinstance(inst, addint_class):
+                    def f(base, delta_reg):
+                        delta = self.cache[delta_reg]
+                        if base in self.offset_cache:
+                            reg, offset, mult = self.offset_cache[base]
+                            new_base, new_offset = reg, offset + delta
+                        else:
+                            new_base, new_offset = base, delta
+                            mult = 1
+                        self.add_offset(inst.args[0], new_base, new_offset,
+                                        mult)
+                    if inst.args[1] in self.cache:
+                        f(inst.args[2], inst.args[1])
+                    elif inst.args[2] in self.cache:
+                        f(inst.args[1], inst.args[2])
+                elif isinstance(inst, subint_class):
+                    def f(reg, cached, reverse):
+                        delta = self.cache[cached]
+                        if reg in self.offset_cache:
+                            reg, offset, mult = self.offset_cache[reg]
+                            new_base, new_offset = reg, offset - delta
+                        else:
+                            new_base = reg
+                            new_offset = -delta if reverse else delta
+                            mult = 1
+                        self.add_offset(inst.args[0], new_base, new_offset,
+                                        mult if reverse else -mult)
+                    if inst.args[1] in self.cache:
+                        f(inst.args[2], inst.args[1], False)
+                    elif inst.args[2] in self.cache:
+                        f(inst.args[1], inst.args[2], True)
             elif isinstance(inst, IndirectMemoryInstruction):
                 if inst.args[1] in self.cache:
                     instructions[i] = inst.get_direct(self.cache[inst.args[1]])
+                    instructions[i]._protect = inst._protect
+                elif inst.args[1] in self.offset_cache:
+                    base, offset, mult = self.offset_cache[inst.args[1]]
+                    addr = self.rev_offset_cache[base.i, offset, mult]
+                    inst.args[1] = addr
+                elif inst.args[1] in self.range_cache:
+                    size, base = self.range_cache[inst.args[1]]
+                    if size == len(inst.args[0]):
+                        instructions[i] = inst.get_direct(base)
             elif type(inst) == convint_class:
                 if inst.args[1] in self.cache:
                     res = self.cache[inst.args[1]]
@@ -609,4 +865,13 @@ class RegintOptimizer:
                     if op == 0:
                         instructions[i] = ldsi(inst.args[0], 0,
                                                add_to_prog=False)
+            elif isinstance(inst, (crash, cond_print_str, cond_print_plain)):
+                if inst.args[0] in self.cache:
+                    cond = self.cache[inst.args[0]]
+                    if not cond:
+                        instructions[i] = None
+        pre = len(instructions)
         instructions[:] = list(filter(lambda x: x is not None, instructions))
+        post = len(instructions)
+        if pre != post and program.options.verbose:
+            print('regint optimizer removed %d instructions' % (pre - post))

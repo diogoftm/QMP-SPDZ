@@ -24,7 +24,12 @@ public:
     typedef T value_type;
     typedef FixedVec Scalar;
 
-    static const int length = L;
+    static const int vector_length = L;
+
+    static int length()
+    {
+        return L * T::length();
+    }
 
     static int size()
     {
@@ -58,25 +63,25 @@ public:
         return res;
     }
 
-    FixedVec<T, L>(const T& other = {})
+    FixedVec(const T& other = {})
     {
         for (auto& x : v)
             x = other;
     }
 
-    FixedVec<T, L>(long other) :
-            FixedVec<T, L>(T(other))
+    FixedVec(long other) :
+            FixedVec(T(other))
     {
     }
 
     template<class U>
-    FixedVec<T, L>(const FixedVec<U, L>& other)
+    FixedVec(const FixedVec<U, L>& other)
     {
         for (int i = 0; i < L; i++)
             v[i] = other[i];
     }
 
-    FixedVec<T, L>(const array<T, L>& other)
+    FixedVec(const array<T, L>& other)
     {
         v = other;
     }
@@ -133,12 +138,6 @@ public:
             v[i] = (x.v[i] * y.v[i]);
     }
 
-    void add(octetStream& os)
-    {
-        for (int i = 0; i < L; i++)
-            v[i].add(os);
-    }
-
     void negate()
     {
         for (auto& x : v)
@@ -160,6 +159,11 @@ public:
     bool is_one()
     {
         return equal(1);
+    }
+
+    bool operator==(const FixedVec<T, L>& other) const
+    {
+        return equal(other);
     }
 
     bool operator!=(const FixedVec<T, L>& other) const

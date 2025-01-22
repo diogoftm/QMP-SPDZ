@@ -6,7 +6,8 @@
 #ifndef PROTOCOLS_SPDZ_H_
 #define PROTOCOLS_SPDZ_H_
 
-#include "Beaver.h"
+#include "Hemi.h"
+#include "SemiShare.h"
 
 #include <vector>
 using namespace std;
@@ -19,19 +20,11 @@ class Player;
  * SPDZ protocol
  */
 template <class T>
-class SPDZ : public Beaver<T>
+class SPDZ : public MaybeHemi<T>
 {
 public:
-    SPDZ(Player& P) : Beaver<T>(P)
+    SPDZ(Player& P) : MaybeHemi<T>(P)
     {
-    }
-
-    static void assign(typename T::clear& share, const typename T::clear& clear, int my_num)
-    {
-        if (my_num == 0)
-            share = clear;
-        else
-            share = 0;
     }
 
     int get_n_relevant_players()

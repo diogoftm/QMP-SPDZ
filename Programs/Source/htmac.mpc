@@ -38,9 +38,9 @@ from random import randint
 import sys
 program.bit_length = 128
 
-n_parallel = int(sys.argv[2])
-n_total = int(sys.argv[3])
-nmessages = int(sys.argv[4])
+n_parallel = int(program.args[1])
+n_total = int(program.args[2])
+nmessages = int(program.args[3])
 
 use_mimc_prf = True
 # Use just one PRF

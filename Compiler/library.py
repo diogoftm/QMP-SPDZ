@@ -3,11 +3,12 @@ This module defines functions directly available in high-level programs,
 in particularly providing flow control and output.
 """
 
-from Compiler.types import cint,sint,cfix,sfix,sfloat,MPCThread,Array,MemValue,cgf2n,sgf2n,_number,_mem,_register,regint,Matrix,_types, cfloat, _single, localint, personal, copy_doc, _vec
+from Compiler.types import cint,sint,cfix,sfix,sfloat,MPCThread,Array,MemValue,cgf2n,sgf2n,_number,_mem,_register,regint,Matrix,_types, cfloat, _single, localint, personal, copy_doc, _vec, SubMultiArray, _secret
 from Compiler.instructions import *
 from Compiler.util import tuplify,untuplify,is_zero
-from Compiler.allocator import RegintOptimizer
-from Compiler import instructions,instructions_base,comparison,program,util
+from Compiler.allocator import RegintOptimizer, AllocPool
+from Compiler.program import Tape
+from Compiler import instructions,instructions_base,comparison,util,types
 import inspect,math
 import random
 import collections
@@ -42,7 +43,7 @@ def vectorize(function):
 
 def set_instruction_type(function):
     def instruction_typed_function(*args, **kwargs):
-        if len(args) > 0 and isinstance(args[0], program.Tape.Register):
+        if len(args) > 0 and isinstance(args[0], Tape.Register):
             if args[0].is_gf2n:
                 instructions_base.set_global_instruction_type('gf2n')
             else:
@@ -59,11 +60,18 @@ def set_instruction_type(function):
 def _expand_to_print(val):
     return ('[' + ', '.join('%s' for i in range(len(val))) + ']',) + tuple(val)
 
-def print_str(s, *args):
+def print_str(s, *args, print_secrets=False):
     """ Print a string, with optional args for adding
-    variables/registers with ``%s``. """
+    variables/registers with ``%s``.
+
+    :param s: format string
+    :param args: arguments (any type)
+    :param print_secrets: whether to output secret shares
+
+    """
     def print_plain_str(ss):
         """ Print a plain string (no custom formatting options) """
+        ss = bytearray(ss, 'utf8')
         i = 1
         while 4*i <= len(ss):
             print_char4(ss[4*(i-1):4*i])
@@ -83,32 +91,37 @@ def print_str(s, *args):
                 val = args[i].read()
             else:
                 val = args[i]
-            if isinstance(val, program.Tape.Register):
+            if isinstance(val, Tape.Register):
                 if val.is_clear:
                     val.print_reg_plain()
+                elif print_secrets and isinstance(val, _secret):
+                    val.output()
                 else:
-                    raise CompilerError('Cannot print secret value:', args[i])
+                    raise CompilerError(
+                        'Cannot print secret value %s, activate printing of shares with '
+                        "'print_secrets=True'" % args[i])
             elif isinstance(val, cfix):
                 val.print_plain()
             elif isinstance(val, sfix) or isinstance(val, sfloat):
                 raise CompilerError('Cannot print secret value:', args[i])
             elif isinstance(val, cfloat):
                 val.print_float_plain()
-            elif isinstance(val, (list, tuple, Array)):
-                print_str(*_expand_to_print(val))
+            elif isinstance(val, (list, tuple, Array, SubMultiArray)):
+                print_str(*_expand_to_print(val), print_secrets=print_secrets)
             else:
                 try:
                     val.output()
-                except AttributeError:
+                except (AttributeError, TypeError):
                     print_plain_str(str(val))
 
-def print_ln(s='', *args):
+def print_ln(s='', *args, **kwargs):
     """ Print line, with optional args for adding variables/registers
     with ``%s``. By default only player 0 outputs, but the ``-I``
     command-line option changes that.
 
     :param s: Python string with same number of ``%s`` as length of :py:obj:`args`
     :param args: list of public values (regint/cint/int/cfix/cfloat/localint)
+    :param print_secrets: whether to output secret shares
 
     Example:
 
@@ -116,7 +129,12 @@ def print_ln(s='', *args):
 
         print_ln('a is %s.', a.reveal())
     """
-    print_str(s + '\n', *args)
+    print_str(str(s) + '\n', *args, **kwargs)
+
+def print_both(s, end='\n'):
+    """ Print line during compilation and execution. """
+    print(s, end=end)
+    print_str(s + end)
 
 def print_ln_if(cond, ss, *args):
     """ Print line if :py:obj:`cond` is true. The further arguments
@@ -138,7 +156,7 @@ def print_str_if(cond, ss, *args):
     """ Print string conditionally. See :py:func:`print_ln_if` for details. """
     if util.is_constant(cond):
         if cond:
-            print_ln(ss, *args)
+            print_str(ss, *args)
     else:
         subs = ss.split('%s')
         assert len(subs) == len(args) + 1
@@ -154,7 +172,8 @@ def print_str_if(cond, ss, *args):
                         print_str_if(cond, *_expand_to_print(val))
                     else:
                         print_str_if(cond, str(val))
-            s += '\0' * ((-len(s)) % 4)
+            s = bytearray(s, 'utf8')
+            s += b'\0' * ((-len(s)) % 4)
             while s:
                 cond.print_if(s[:4])
                 s = s[4:]
@@ -162,7 +181,7 @@ def print_str_if(cond, ss, *args):
 def print_ln_to(player, ss, *args):
     """ Print line at :py:obj:`player` only. Note that printing is
     disabled by default except at player 0. Activate interactive mode
-    with `-I` to enable it for all players.
+    with `-I` or use `-OF .` to enable it for all players.
 
     :param player: int
     :param ss: Python string
@@ -243,6 +262,10 @@ def store_in_mem(value, address):
     try:
         value.store_in_mem(address)
     except AttributeError:
+        if isinstance(value, (list, tuple)):
+            for i, x in enumerate(value):
+                store_in_mem(x, address + i)
+            return
         # legacy
         if value.is_clear:
             if isinstance(address, cint):
@@ -261,11 +284,13 @@ def reveal(secret):
     try:
         return secret.reveal()
     except AttributeError:
+        if secret.is_clear:
+            return secret
         if secret.is_gf2n:
             res = cgf2n()
         else:
             res = cint()
-        instructions.asm_open(res, secret)
+        instructions.asm_open(True, res, secret)
         return res
 
 @vectorize
@@ -282,13 +307,19 @@ def get_arg():
     ldarg(res)
     return res
 
-def make_array(l):
-    if isinstance(l, program.Tape.Register):
-        res = Array(len(l), type(l))
+def get_cmdline_arg(idx):
+    """ Return run-time command-line argument. """
+    res = regint()
+    cmdlinearg(res, regint.conv(idx))
+    return localint(res)
+
+def make_array(l, t=None):
+    if isinstance(l, types._structure):
+        res = Array(len(l), t or type(l))
         res[:] = l
     else:
         l = list(l)
-        res = Array(len(l), type(l[0]) if l else cint)
+        res = Array(len(l), t or type(l[0]) if l else cint)
         res.assign(l)
     return res
 
@@ -303,13 +334,12 @@ class FunctionTapeCall:
         return self
     def join(self):
         self.thread.join()
-        instructions.program.free(self.base, 'ci')
-        for reg_type,addr in self.bases.items():
-            get_program().free(addr, reg_type.reg_type)
+        if self.base is not None:
+            instructions.program.free(self.base, 'ci')
 
 class Function:
     def __init__(self, function, name=None, compile_args=[]):
-        self.type_args = {}
+        self.last_key = None
         self.function = function
         self.name = name
         if name is None:
@@ -317,44 +347,40 @@ class Function:
         self.compile_args = compile_args
     def __call__(self, *args):
         args = tuple(arg.read() if isinstance(arg, MemValue) else arg for arg in args)
-        from .types import _types
-        get_reg_type = lambda x: \
-            regint if isinstance(x, int) else _types.get(x.reg_type, type(x))
-        if len(args) not in self.type_args:
+        runtime_args = []
+        reg_args = []
+        key = self.base_key(),
+        for i,arg in enumerate(args):
+            if isinstance(arg, types._vectorizable):
+                key += (arg.shape, arg.value_type)
+            else:
+                arg = MemValue(arg)
+                reg_args.append(arg)
+                t = arg.value_type
+                key += (arg.size, t)
+            runtime_args.append(arg)
+        if key != self.last_key:
             # first call
-            type_args = collections.defaultdict(list)
-            for i,arg in enumerate(args):
-                type_args[get_reg_type(arg)].append(i)
+            outer_runtime_args = runtime_args
             def wrapped_function(*compile_args):
-                base = get_arg()
-                bases = dict((t, regint.load_mem(base + i)) \
-                                 for i,t in enumerate(sorted(type_args,
-                                                             key=lambda x:
-                                                             x.reg_type)))
-                runtime_args = [None] * len(args)
-                for t in sorted(type_args, key=lambda x: x.reg_type):
-                    i = 0
-                    for i_arg in type_args[t]:
-                        runtime_args[i_arg] = t.load_mem(bases[t] + i)
-                        i += util.mem_size(t)
-                return self.function(*(list(compile_args) + runtime_args))
+                addresses = regint.Array(len(outer_runtime_args),
+                                         address=get_arg())
+                runtime_args = []
+                for i, arg in enumerate(outer_runtime_args):
+                    if isinstance(arg, MemValue):
+                        arg = arg.value_type.load_mem(
+                            address=addresses[i], size=arg.size)
+                    runtime_args.append(arg)
+                self.result = self.function(
+                    *(list(compile_args) + runtime_args))
+                return self.result
             self.on_first_call(wrapped_function)
-            self.type_args[len(args)] = type_args
-        type_args = self.type_args[len(args)]
-        base = instructions.program.malloc(len(type_args), 'ci')
-        bases = dict((t, get_program().malloc(len(type_args[t]), t)) \
-                         for t in type_args)
-        for i,reg_type in enumerate(sorted(type_args,
-                                           key=lambda x: x.reg_type)):
-            store_in_mem(bases[reg_type], base + i)
-            j = 0
-            for i_arg in type_args[reg_type]:
-                if get_reg_type(args[i_arg]) != reg_type:
-                    raise CompilerError('type mismatch: "%s" not of type "%s"' %
-                                        (args[i_arg], reg_type))
-                store_in_mem(args[i_arg], bases[reg_type] + j)
-                j += util.mem_size(reg_type)
-        return self.on_call(base, bases)
+            self.last_key = key
+        addresses = regint.Array(len(runtime_args))
+        for i, arg in enumerate(reg_args):
+            addresses[i] = arg.address
+        return self.on_call(addresses._address,
+                            [(arg.value_type, arg.address) for arg in reg_args])
 
 class FunctionTape(Function):
     # not thread-safe
@@ -368,6 +394,171 @@ class FunctionTape(Function):
                                 single_thread=self.single_thread)
     def on_call(self, base, bases):
         return FunctionTapeCall(self.thread, base, bases)
+    @staticmethod
+    def base_key():
+        pass
+
+class FunctionCallTape(FunctionTape):
+    def __init__(self, *args, **kwargs):
+        super(FunctionTape, self).__init__(*args, **kwargs)
+        self.instances = {}
+    @staticmethod
+    def get_key(args, kwargs):
+        key = (get_program(),)
+        def process_for_key(arg):
+            nonlocal key
+            if isinstance(arg, types._vectorizable):
+                key += (arg.value_type, tuple(arg.shape))
+            elif isinstance(arg, Tape.Register):
+                key += (type(arg), arg.size)
+            elif isinstance(arg, list):
+                key += (tuple(arg), 'l')
+            else:
+                key += (arg,)
+        for arg in args:
+            process_for_key(arg)
+        for name, arg in sorted(kwargs.items()):
+            key += (name, 'kw')
+            process_for_key(arg)
+        return key
+    def __call__(self, *args, **kwargs):
+        key = self.get_key(args, kwargs)
+        if key not in self.instances:
+            my_args = []
+            def wrapped_function():
+                actual_call_args = []
+                def process_for_call(arg):
+                    if isinstance(arg, Tape.Register):
+                        my_arg = arg.same_type()
+                        call_arg(my_arg, base.vm_types[my_arg.reg_type])
+                        my_args.append(my_arg)
+                        return my_arg
+                    elif isinstance(arg, types._vectorizable):
+                        my_arg = arg.same_shape(address=regint())
+                        call_arg(my_arg.address, base.vm_types['ci'])
+                        my_args.append(my_arg)
+                        my_arg = arg.same_shape(
+                            address=MemValue(my_arg.address))
+                        return my_arg
+                        actual_call_args.append(my_arg)
+                    else:
+                        my_args.append(arg)
+                        return arg
+                for arg in args:
+                    actual_call_args.append(process_for_call(arg))
+                actual_call_kwargs = {}
+                for name, arg in sorted(kwargs.items()):
+                    actual_call_kwargs[name] = process_for_call(arg)
+                self.result = self.function(*actual_call_args,
+                                            **actual_call_kwargs)
+                if self.result is not None:
+                    self.result = list(tuplify(self.result))
+                    for i, res in enumerate(self.result):
+                        if util.is_constant(res):
+                            self.result[i] = regint(res)
+            self.on_first_call(wrapped_function, key, my_args)
+        for name, arg in sorted(kwargs.items()):
+            args += arg,
+        return self.on_call(*self.instances[key], args)
+    def on_first_call(self, wrapped_function, key, inside_args):
+        program = get_program()
+        program.curr_tape
+        tape_handle = len(program.tapes)
+        # entry for recursion
+        self.instances[key] = tape_handle, None, inside_args
+        assert tape_handle == program.new_tape(
+            wrapped_function, name=self.name, args=self.compile_args,
+            single_thread=get_tape().singular, finalize=False,
+            thread_pool=get_tape().free_threads)
+        tape = program.tapes[tape_handle]
+        if self.result is not None:
+            self.result = list(tuplify(self.result))
+            for reg in self.result:
+                reg.can_eliminate = False
+                tape.return_values.append(reg)
+        assert not tape.purged
+        get_program().finalize_tape(tape)
+        self.instances[key] = tape_handle, self.result, inside_args
+    def on_call(self, tape_handle, result, inside_args, args):
+        tape = get_program().tapes[tape_handle]
+        if tape.ran_threads and tape.free_threads != get_tape().free_threads:
+            raise CompilerError(
+                'cannot call thread-running tape from another thread')
+        assert len(inside_args) == len(args)
+        out_result = []
+        call_args = []
+        if result is not None:
+            out_result = [reg.same_type() for reg in result]
+            for x, y in zip(out_result, result):
+                call_args += [
+                    1, instructions_base.vm_types[x.reg_type],
+                    x.size_for_mem(), x, y]
+        for x, y in zip(inside_args, args):
+            if isinstance(x, Tape.Register):
+                call_args += [
+                    0, instructions_base.vm_types[x.reg_type],
+                    x.size_for_mem(), x, y]
+            elif isinstance(x, types._vectorizable):
+                call_args += [0, base.vm_types['ci'], 1,
+                              x.address, regint.conv(y.address)]
+        call_tape(tape_handle, regint(0),
+                  *call_args)
+        break_point('call-%s' % self.name)
+        return untuplify(tuple(out_result))
+
+class ExportFunction(FunctionCallTape):
+    def __init__(self, function):
+        super(ExportFunction, self).__init__(function)
+        self.done = set()
+    def __call__(self, *args, **kwargs):
+        if kwargs:
+            raise CompilerError('keyword arguments not supported')
+        def arg_signature(arg):
+            if isinstance(arg, types._structure):
+                return '%s:%d' % (arg.arg_type(), arg.size)
+            elif isinstance(arg, types._vectorizable):
+                from .GC.types import sbitvec
+                if issubclass(arg.value_type, sbitvec):
+                    return 'sbv:[%dx%d]' % (arg.total_size(),
+                                            arg.value_type.n_bits)
+                else:
+                    return '%s:[%d]' % (arg.value_type.arg_type(),
+                                        arg.total_size())
+            else:
+                raise CompilerError('argument not supported: %s' % arg)
+        signature = []
+        for arg in args:
+            signature.append(arg_signature(arg))
+        signature = tuple(signature)
+        key = self.get_key(args, kwargs)
+        if key in self.instances and signature not in self.done:
+            raise CompilerError('signature conflict')
+        super(ExportFunction, self).__call__(*args, **kwargs)
+        if signature not in self.done:
+            filename = '%s/%s/%s-%s' % (get_program().programs_dir, 'Functions',
+                                        self.name, '-'.join(signature))
+            print('Writing to', filename)
+            out = open(filename, 'w')
+            print(get_program().name, file=out)
+            print(self.instances[key][0], file=out)
+            result = self.instances[key][1]
+            try:
+                if result is not None:
+                    result = untuplify(result)
+                    print(arg_signature(result), result.i, file=out)
+                else:
+                    print('- 0', file=out)
+            except CompilerError:
+                raise CompilerError('return type not supported: %s' % result)
+            for arg in self.instances[key][2]:
+                if isinstance(arg, types._structure):
+                    print(arg.i, end=' ', file=out)
+                elif isinstance(arg, types._vectorizable):
+                    print(arg.address, end=' ', file=out)
+                else:
+                    CompilerError('argument not supported: %s', arg)
+            print(file=out)
+            self.done.add(signature)
 
 def function_tape(function):
     return FunctionTape(function)
@@ -380,27 +571,121 @@ def function_tape_with_compile_args(*args):
 def single_thread_function_tape(function):
     return FunctionTape(function, single_thread=True)
 
-def memorize(x):
-    if isinstance(x, (tuple, list)):
-        return tuple(memorize(i) for i in x)
+def function_call_tape(function):
+    if get_program().use_tape_calls:
+        return FunctionCallTape(function)
     else:
-        return MemValue(x)
+        return function
+
+def method_call_tape(function):
+    tapes = {}
+    def wrapper(self, *args, **kwargs):
+        def use(name):
+            x = self.__dict__[name]
+            return not isinstance(x, types.MultiArray) or \
+                x.array._address is not None
+        key = (type(self),) + tuple(filter(use, sorted(self.__dict__)))
+        member_key = key[1:]
+        if key not in tapes:
+            def f(*args, **kwargs):
+                class Dummy(type(self)):
+                    __init__ = lambda self: None
+                dummy = Dummy()
+                members = args[:len(member_key)]
+                real_args = args[len(member_key):]
+                addresses = {}
+                for name, member in zip(member_key, members):
+                    dummy.__dict__[name] = member
+                    if isinstance(member, types._vectorizable):
+                        addresses[name] = member.address
+                res = function(dummy, *real_args, **kwargs)
+                for name, member in zip(member_key, members):
+                    new_member = dummy.__dict__[name]
+                    desc = '%s in %s.%s' % (name, type(self).__name__,
+                                            function.__name__)
+                    if id(new_member) != id(member):
+                        raise CompilerError('cannot change members '
+                                            'in method tape (%s)' % desc)
+                    if isinstance(member, types._vectorizable) and \
+                       id(new_member.address) != id(addresses[name]):
+                        raise CompilerError('cannot change memory address '
+                                            'in method tape (%s)' % desc)
+                    if set(member_key) != set(dummy.__dict__):
+                        raise CompilerError('cannot add members '
+                                            'in method tape (%s)' % desc)
+                return res
+            f.__name__ = '%s-%s' % (type(self).__name__, function.__name__)
+            tapes[key] = function_call_tape(f)
+        members = tuple(self.__dict__[x] for x in member_key)
+        res = tapes[key](*(members + args), **kwargs)
+        return res
+    return wrapper
+
+def function(function):
+    """ Create a run-time function. The arguments can be memory or basic
+    types, and return values can be basic types::
+
+      @function
+      def f(x, y, z):
+          y.write(1)
+          z[0] = 2
+	  return x + 3
+
+      a = MemValue(sint(0))
+      b = sint.Array(10)
+      c = f(sint(4), a, b)
+
+      print_ln('%s %s %s', a.reveal(), b[0].reveal(), c.reveal())
+
+    This should output::
+
+      1 2 7
+
+    You can use run-time functions recursively but without return
+    values in this case.
+
+    """
+    return FunctionCallTape(function)
+
+def export(function):
+    return ExportFunction(function)
+
+def memorize(x, write=True):
+    if isinstance(x, (tuple, list)):
+        return tuple(memorize(i, write=write) for i in x)
+    elif x is None:
+        return
+    else:
+        return MemValue(x, write=write)
 
 def unmemorize(x):
     if isinstance(x, (tuple, list)):
         return tuple(unmemorize(i) for i in x)
+    elif x is None:
+        return
     else:
         return x.read()
 
+def write_mem(dest, source):
+    if isinstance(dest, (tuple, list)):
+        assert len(dest) == len(source)
+        for x, y in zip(dest, source):
+            write_mem(x, y)
+    elif dest is None:
+        return
+    else:
+        dest.write(source)
+
 class FunctionBlock(Function):
     def on_first_call(self, wrapped_function):
+        p_return_address = get_tape().program.malloc(1, 'ci')
         old_block = get_tape().active_basicblock
-        parent_node = get_tape().req_node
+        parent_node = old_block.req_node
         get_tape().open_scope(lambda x: x[0], None, 'begin-' + self.name)
         block = get_tape().active_basicblock
-        block.alloc_pool = defaultdict(list)
+        block.alloc_pool = AllocPool(parent=block.alloc_pool)
         del parent_node.children[-1]
-        self.node = get_tape().req_node
+        self.node = block.req_node
         if get_program().verbose:
             print('Compiling function', self.name)
         result = wrapped_function(*self.compile_args)
@@ -410,7 +695,6 @@ class FunctionBlock(Function):
             self.result = None
         if get_program().verbose:
             print('Done compiling function', self.name)
-        p_return_address = get_tape().program.malloc(1, 'ci')
         get_tape().function_basicblocks[block] = p_return_address
         return_address = regint.load_mem(p_return_address)
         get_tape().active_basicblock.set_exit(instructions.jmpi(return_address, add_to_prog=False))
@@ -428,14 +712,18 @@ class FunctionBlock(Function):
         old_block = get_tape().active_basicblock
         old_block.set_exit(instructions.jmp(0, add_to_prog=False), block)
         p_return_address = get_tape().function_basicblocks[block]
-        return_address = get_tape().new_reg('ci')
+        return_address = regint()
         old_block.return_address_store = instructions.ldint(return_address, 0)
-        instructions.stmint(return_address, p_return_address)
+        return_address.store_in_mem(p_return_address)
         get_tape().start_new_basicblock(name='call-' + self.name)
         get_tape().active_basicblock.set_return(old_block, self.last_sub_block)
-        get_tape().req_node.children.append(self.node)
+        get_block().req_node.children.append(self.node)
         if self.result is not None:
             return unmemorize(self.result)
+
+    @staticmethod
+    def base_key():
+        return get_tape()
 
 def function_block(function):
     return FunctionBlock(function)
@@ -459,7 +747,12 @@ def method_block(function):
             return block(*args)
     return wrapper
 
-def cond_swap(x,y):
+def cond_swap(x, y, key_indices=None):
+    from .types import SubMultiArray
+    if isinstance(x, (Array, SubMultiArray)):
+        assert len(key_indices) == 1
+        b = x[key_indices[0]] > y[key_indices[0]]
+        return list(zip(*[b.cond_swap(xx, yy) for xx, yy in zip(x, y)]))
     b = x < y
     if isinstance(x, sfloat):
         res = ([], [])
@@ -471,11 +764,11 @@ def cond_swap(x,y):
             res[0].append(bx + yy - by)
             res[1].append(xx - bx + by)
         return sfloat(*res[0]), sfloat(*res[1])
-    bx = b * x
-    by = b * y
-    return bx + y - by, x - bx + by
+    return b.cond_swap(y, x)
 
 def sort(a):
+    print("WARNING: you're using bubble sort")
+
     res = a
     
     for i in range(len(a)):
@@ -501,282 +794,36 @@ def odd_even_merge_sort(a):
     if len(a) == 1:
         return
     elif len(a) % 2 == 0:
+        aa = a
+        a = list(a)
         lower = a[:len(a)//2]
         upper = a[len(a)//2:]
         odd_even_merge_sort(lower)
         odd_even_merge_sort(upper)
         a[:] = lower + upper
         odd_even_merge(a)
+        aa[:] = a
     else:
         raise CompilerError('Length of list must be power of two')
 
 def chunky_odd_even_merge_sort(a):
-    tmp = a[0].Array(len(a))
-    for i,j in enumerate(a):
-        tmp[i] = j
-    l = 1
-    while l < len(a):
-        l *= 2
-        k = 1
-        while k < l:
-            k *= 2
-            def round():
-                for i in range(len(a)):
-                    a[i] = tmp[i]
-                for i in range(len(a) // l):
-                    for j in range(l // k):
-                        base = i * l + j
-                        step = l // k
-                        if k == 2:
-                            a[base], a[base+step] = cond_swap(a[base], a[base+step])
-                        else:
-                            b = a[base:base+k*step:step]
-                            for m in range(base + step, base + (k - 1) * step, 2 * step):
-                                a[m], a[m+step] = cond_swap(a[m], a[m+step])
-                for i in range(len(a)):
-                    tmp[i] = a[i]
-            chunk = MPCThread(round, 'sort-%d-%d' % (l,k), single_thread=True)
-            chunk.start()
-            chunk.join()
-            #round()
-    for i in range(len(a)):
-        a[i] = tmp[i]
+    raise CompilerError(
+        'This function has been removed, use loopy_odd_even_merge_sort instead')
 
 def chunkier_odd_even_merge_sort(a, n=None, max_chunk_size=512, n_threads=7, use_chunk_wraps=False):
-    if n is None:
-        n = len(a)
-        a_base = instructions.program.malloc(n, 's')
-        for i,j in enumerate(a):
-            store_in_mem(j, a_base + i)
-    else:
-        a_base = a
-    tmp_base = instructions.program.malloc(n, 's')
-    chunks = {}
-    threads = []
-
-    def run_threads():
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join()
-        del threads[:]
-
-    def run_chunk(size, base):
-        if size not in chunks:
-            def swap_list(list_base):
-                for i in range(size // 2):
-                    base = list_base + 2 * i
-                    x, y = cond_swap(sint.load_mem(base),
-                                     sint.load_mem(base + 1))
-                    store_in_mem(x, base)
-                    store_in_mem(y, base + 1)
-            chunks[size] = FunctionTape(swap_list, 'sort-%d' % size)
-        return chunks[size](base)
-
-    def run_round(size):
-        # minimize number of chunk sizes
-        n_chunks = int(math.ceil(1.0 * size / max_chunk_size))
-        lower_size = size // n_chunks // 2 * 2
-        n_lower_size = n_chunks - (size - n_chunks * lower_size) // 2
-        # print len(to_swap) == lower_size * n_lower_size + \
-        #     (lower_size + 2) * (n_chunks - n_lower_size), \
-        #     len(to_swap), n_chunks, lower_size, n_lower_size
-        base = 0
-        round_threads = []
-        for i in range(n_lower_size):
-            round_threads.append(run_chunk(lower_size, tmp_base + base))
-            base += lower_size
-        for i in range(n_chunks - n_lower_size):
-            round_threads.append(run_chunk(lower_size + 2, tmp_base + base))
-            base += lower_size + 2
-        run_threads_in_rounds(round_threads)
-
-    postproc_chunks = []
-    wrap_chunks = {}
-    post_threads = []
-    pre_threads = []
-
-    def load_and_store(x, y, to_right):
-        if to_right:
-            store_in_mem(sint.load_mem(x), y)
-        else:
-            store_in_mem(sint.load_mem(y), x)
-
-    def run_setup(k, a_addr, step, tmp_addr):
-        if k == 2:
-            def mem_op(preproc, a_addr, step, tmp_addr):
-                load_and_store(a_addr, tmp_addr, preproc)
-                load_and_store(a_addr + step, tmp_addr + 1, preproc)
-            res = 2
-        else:
-            def mem_op(preproc, a_addr, step, tmp_addr):
-                instructions.program.curr_tape.merge_opens = False
-#                for i,m in enumerate(range(a_addr + step, a_addr + (k - 1) * step, step)):
-                for i in range(k - 2):
-                    m = a_addr + step + i * step
-                    load_and_store(m, tmp_addr + i, preproc)
-            res = k - 2
-        if not use_chunk_wraps or k <= 4:
-            mem_op(True, a_addr, step, tmp_addr)
-            postproc_chunks.append((mem_op, (a_addr, step, tmp_addr)))
-        else:
-            if k not in wrap_chunks:
-                pre_chunk = FunctionTape(mem_op, 'pre-%d' % k,
-                                         compile_args=[True])
-                post_chunk = FunctionTape(mem_op, 'post-%d' % k,
-                                          compile_args=[False])
-                wrap_chunks[k] = (pre_chunk, post_chunk)
-            pre_chunk, post_chunk = wrap_chunks[k]
-            pre_threads.append(pre_chunk(a_addr, step, tmp_addr))
-            post_threads.append(post_chunk(a_addr, step, tmp_addr))
-        return res
-
-    def run_threads_in_rounds(all_threads):
-        for thread in all_threads:
-            if len(threads) == n_threads:
-                run_threads()
-            threads.append(thread)
-        run_threads()
-        del all_threads[:]
-
-    def run_postproc():
-        run_threads_in_rounds(post_threads)
-        for chunk,args in postproc_chunks:
-            chunk(False, *args)
-        postproc_chunks[:] = []
-
-    l = 1
-    while l < n:
-        l *= 2
-        k = 1
-        while k < l:
-            k *= 2
-            size = 0
-            instructions.program.curr_tape.merge_opens = False
-            for i in range(n // l):
-                for j in range(l // k):
-                    base = i * l + j
-                    step = l // k
-                    size += run_setup(k, a_base + base, step, tmp_base + size)
-            run_threads_in_rounds(pre_threads)
-            run_round(size)
-            run_postproc()
-
-    if isinstance(a, list):
-        for i in range(n):
-            a[i] = sint.load_mem(a_base + i)
-        instructions.program.free(a_base, 's')
-    instructions.program.free(tmp_base, 's')
+    raise CompilerError(
+        'This function has been removed, use loopy_odd_even_merge_sort instead')
 
 def loopy_chunkier_odd_even_merge_sort(a, n=None, max_chunk_size=512, n_threads=7):
-    if n is None:
-        n = len(a)
-        a_base = instructions.program.malloc(n, 's')
-        for i,j in enumerate(a):
-            store_in_mem(j, a_base + i)
-    else:
-        a_base = a
-    tmp_base = instructions.program.malloc(n, 's')
-    tmp_i = instructions.program.malloc(1, 'ci')
-    chunks = {}
-    threads = []
-
-    def run_threads():
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join()
-        del threads[:]
-
-    def run_threads_in_rounds(all_threads):
-        for thread in all_threads:
-            if len(threads) == n_threads:
-                run_threads()
-            threads.append(thread)
-        run_threads()
-        del all_threads[:]
-
-    def run_chunk(size, base):
-        if size not in chunks:
-            def swap_list(list_base):
-                for i in range(size // 2):
-                    base = list_base + 2 * i
-                    x, y = cond_swap(sint.load_mem(base),
-                                     sint.load_mem(base + 1))
-                    store_in_mem(x, base)
-                    store_in_mem(y, base + 1)
-            chunks[size] = FunctionTape(swap_list, 'sort-%d' % size)
-        return chunks[size](base)
-
-    def run_round(size):
-        # minimize number of chunk sizes
-        n_chunks = int(math.ceil(1.0 * size / max_chunk_size))
-        lower_size = size // n_chunks // 2 * 2
-        n_lower_size = n_chunks - (size - n_chunks * lower_size) // 2
-        # print len(to_swap) == lower_size * n_lower_size + \
-        #     (lower_size + 2) * (n_chunks - n_lower_size), \
-        #     len(to_swap), n_chunks, lower_size, n_lower_size
-        base = 0
-        round_threads = []
-        for i in range(n_lower_size):
-            round_threads.append(run_chunk(lower_size, tmp_base + base))
-            base += lower_size
-        for i in range(n_chunks - n_lower_size):
-            round_threads.append(run_chunk(lower_size + 2, tmp_base + base))
-            base += lower_size + 2
-        run_threads_in_rounds(round_threads)
-
-    l = 1
-    while l < n:
-        l *= 2
-        k = 1
-        while k < l:
-            k *= 2
-            def load_and_store(x, y):
-                if to_tmp:
-                    store_in_mem(sint.load_mem(x), y)
-                else:
-                    store_in_mem(sint.load_mem(y), x)
-            def outer(i):
-                def inner(j):
-                    base = j + a_base + i * l
-                    step = l // k
-                    if k == 2:
-                        tmp_addr = regint.load_mem(tmp_i)
-                        load_and_store(base, tmp_addr)
-                        load_and_store(base + step, tmp_addr + 1)
-                        store_in_mem(tmp_addr + 2, tmp_i)
-                    else:
-                        def inner2(m):
-                            m += base
-                            tmp_addr = regint.load_mem(tmp_i)
-                            load_and_store(m, tmp_addr)
-                            store_in_mem(tmp_addr + 1, tmp_i)
-                        range_loop(inner2, step, (k - 1) * step, step)
-                range_loop(inner, l // k)
-            instructions.program.curr_tape.merge_opens = False
-            to_tmp = True
-            store_in_mem(tmp_base, tmp_i)
-            range_loop(outer, n // l)
-            if k == 2:
-                run_round(n)
-            else:
-                run_round(n // k * (k - 2))
-            instructions.program.curr_tape.merge_opens = False
-            to_tmp = False
-            store_in_mem(tmp_base, tmp_i)
-            range_loop(outer, n // l)
-
-    if isinstance(a, list):
-        for i in range(n):
-            a[i] = sint.load_mem(a_base + i)
-        instructions.program.free(a_base, 's')
-    instructions.program.free(tmp_base, 's')
-    instructions.program.free(tmp_i, 'ci')
+    raise CompilerError(
+        'This function has been removed, use loopy_odd_even_merge_sort instead')
 
 
 def loopy_odd_even_merge_sort(a, sorted_length=1, n_parallel=32,
-                              n_threads=None):
+                              n_threads=None, key_indices=None):
+    a_in = a
+    if isinstance(a_in, list):
+        a = Array.create_from(a)
     steps = {}
     l = sorted_length
     while l < len(a):
@@ -801,13 +848,14 @@ def loopy_odd_even_merge_sort(a, sorted_length=1, n_parallel=32,
                         def swap(base, step):
                             if m == len(a):
                                 a[base], a[base + step] = \
-                                    cond_swap(a[base], a[base + step])
+                                    cond_swap(a[base], a[base + step],
+                                              key_indices=key_indices)
                             else:
                                 # ignore values outside range
                                 go = base + step < len(a)
                                 x = a.maybe_get(go, base)
                                 y = a.maybe_get(go, base + step)
-                                tmp = cond_swap(x, y)
+                                tmp = cond_swap(x, y, key_indices=key_indices)
                                 for i, idx in enumerate((base, base + step)):
                                     a.maybe_set(go, idx, tmp[i])
                         if k == 2:
@@ -820,8 +868,14 @@ def loopy_odd_even_merge_sort(a, sorted_length=1, n_parallel=32,
                                 swap(m2, step)
                 steps[key] = step
             steps[key](l)
+    if isinstance(a_in, list):
+        a_in[:] = list(a)
 
 def mergesort(A):
+    if not get_program().options.insecure:
+        raise CompilerError('mergesort reveals the order of elements, '
+                            'use --insecure to activate it')
+
     B = Array(len(A), sint)
 
     def merge(i_left, i_right, i_end):
@@ -849,12 +903,18 @@ def mergesort(A):
         width.imul(2)
         return width < len(A)
 
-def range_loop(loop_body, start, stop=None, step=None):
+def _range_prep(start, stop, step):
     if stop is None:
         stop = start
         start = 0
     if step is None:
         step = 1
+    if util.is_zero(step):
+        raise CompilerError('step must not be zero')
+    return start, stop, step
+
+def range_loop(loop_body, start, stop=None, step=None):
+    start, stop, step = _range_prep(start, stop, step)
     def loop_fn(i):
         res = loop_body(i)
         return util.if_else(res == 0, stop, i + step)
@@ -863,8 +923,6 @@ def range_loop(loop_body, start, stop=None, step=None):
             condition = lambda x: x < stop
         elif step < 0:
             condition = lambda x: x > stop
-        else:
-            raise CompilerError('step must not be zero')
     else:
         b = step > 0
         condition = lambda x: b * (x < stop) + (1 - b) * (x > stop)
@@ -873,51 +931,50 @@ def range_loop(loop_body, start, stop=None, step=None):
             and isinstance(step, int):
         # known loop count
         if condition(start):
-            get_tape().req_node.children[-1].aggregator = \
-                lambda x: ((stop - start) // step) * x[0]
+            get_block().req_node.children[-1].aggregator = \
+                lambda x: int(ceil(((stop - start) / step))) * x[0]
 
 def for_range(start, stop=None, step=None):
     """
     Decorator to execute loop bodies consecutively.  Arguments work as
-    in Python :py:func:`range`, but they can by any public
+    in Python :py:func:`range`, but they can be any public
     integer. Information has to be passed out via container types such
-    as :py:class:`~Compiler.types.Array` or declaring registers as
-    :py:obj:`global`. Note that changing Python data structures such
+    as :py:class:`~Compiler.types.Array` or using :py:func:`update`.
+    Note that changing Python data structures such
     as lists within the loop is not possible, but the compiler cannot
     warn about this.
 
     :param start/stop/step: regint/cint/int
 
-    Example:
+    The following should output 10::
 
-    .. code::
-
+        n = 10
         a = sint.Array(n)
         x = sint(0)
         @for_range(n)
         def _(i):
             a[i] = i
-            global x
-            x += 1
+            x.update(x + 1)
+        print_ln('%s', x.reveal())
 
-    Note that you cannot overwrite data structures such as
-    :py:class:`~Compiler.types.Array` in a loop even when using
-    :py:obj:`global`. Use :py:func:`~Compiler.types.Array.assign`
-    instead.
     """
     def decorator(loop_body):
+        get_tape().unused_decorators.pop(decorator)
         range_loop(loop_body, start, stop, step)
         return loop_body
+    get_tape().unused_decorators[decorator] = 'for_range'
     return decorator
 
 def for_range_parallel(n_parallel, n_loops):
     """
     Decorator to execute a loop :py:obj:`n_loops` up to
-    :py:obj:`n_parallel` loop bodies in parallel.
+    :py:obj:`n_parallel` loop bodies with optimized communication in a
+    single thread.
+    In most cases, it is easier to use :py:func:`for_range_opt`.
     Using any other control flow instruction inside the loop breaks
     the optimization.
 
-    :param n_parallel: compile-time (int)
+    :param n_parallel: optimization parameter (int)
     :param n_loops: regint/cint/int or list of int
 
     Example:
@@ -941,7 +998,7 @@ def for_range_parallel(n_parallel, n_loops):
         return for_range_multithread(None, n_parallel, n_loops)
     return map_reduce_single(n_parallel, n_loops)
 
-def for_range_opt(n_loops, budget=None):
+def for_range_opt(start, stop=None, step=None, budget=None):
     """ Execute loop bodies in parallel up to an optimization budget.
     This prevents excessive loop unrolling. The budget is respected
     even with nested loops. Note that the optimization is rather
@@ -951,8 +1008,10 @@ def for_range_opt(n_loops, budget=None):
     :py:func:`for_range_opt` (e.g, :py:func:`for_range`) breaks the
     optimization.
 
-    :param n_loops: int/regint/cint
-    :param budget: number of instructions after which to start optimization (default is 100,000)
+    :param start/stop/step: int/regint/cint (used as in :py:func:`range`)
+      or :py:obj:`start` only as list/tuple of int (see below)
+    :param budget: number of instructions after which to start optimization
+      (default is 1000 or as given with ``--budget``)
 
     Example:
 
@@ -972,6 +1031,16 @@ def for_range_opt(n_loops, budget=None):
         def f(i, j):
             ...
     """
+    if stop is not None:
+        start, stop, step = _range_prep(start, stop, step)
+        def wrapper(loop_body):
+            range_ = stop-start
+            n_loops = ((range_% step) != 0) + range_ // step
+            @for_range_opt(n_loops, budget=budget)
+            def _(i):
+                return loop_body(start + i * step)
+        return wrapper
+    n_loops = start
     if isinstance(n_loops, (list, tuple)):
         return for_range_opt_multithread(None, n_loops)
     return map_reduce_single(None, n_loops, budget=budget)
@@ -999,7 +1068,7 @@ def map_reduce_single(n_parallel, n_loops, initializer=lambda *x: [],
                 loop_rounds = n_loops // n_parallel \
                               if n_parallel < n_loops else 0
             else:
-                loop_rounds = n_loops / n_parallel
+                loop_rounds = n_loops // n_parallel
         def write_state_to_memory(r):
             if use_array:
                 mem_state.assign(r)
@@ -1013,9 +1082,11 @@ def map_reduce_single(n_parallel, n_loops, initializer=lambda *x: [],
             def f(i):
                 state = tuplify(initializer())
                 start_block = get_block()
+                j = i * n_parallel
+                one = regint(1)
                 for k in range(n_parallel):
-                    j = i * n_parallel + k
                     state = reducer(tuplify(loop_body(j)), state)
+                    j += one
                 if n_parallel > 1 and start_block != get_block():
                     print('WARNING: parallelization broken '
                           'by control flow instruction')
@@ -1027,6 +1098,8 @@ def map_reduce_single(n_parallel, n_loops, initializer=lambda *x: [],
             n_opt_loops_reg = regint(0)
             n_opt_loops_inst = get_block().instructions[-1]
             parent_block = get_block()
+            prevent_breaks = get_program().prevent_breaks
+            get_program().prevent_breaks = False
             @while_do(lambda x: x + n_opt_loops_reg <= n_loops, regint(0))
             def _(i):
                 state = tuplify(initializer())
@@ -1040,6 +1113,7 @@ def map_reduce_single(n_parallel, n_loops, initializer=lambda *x: [],
                     j = i + k
                     state = reducer(tuplify(loop_body(j)), state)
                     k += 1
+                RegintOptimizer().run(block.instructions, get_program())
                 _link(pre, loop_body.__globals__)
                 r = reducer(mem_state, state)
                 write_state_to_memory(r)
@@ -1051,6 +1125,7 @@ def map_reduce_single(n_parallel, n_loops, initializer=lambda *x: [],
             loop_rounds = n_loops // my_n_parallel
             blocks = get_tape().basicblocks
             n_to_merge = 5
+            get_program().prevent_breaks = prevent_breaks
             if util.is_one(loop_rounds) and parent_block is blocks[-n_to_merge]:
                 # merge blocks started by if and do_while
                 def exit_elimination(block):
@@ -1062,19 +1137,22 @@ def map_reduce_single(n_parallel, n_loops, initializer=lambda *x: [],
                 merged.exit_condition = blocks[-1].exit_condition
                 merged.exit_block = blocks[-1].exit_block
                 assert parent_block is blocks[-n_to_merge]
-                assert blocks[-n_to_merge + 1] is \
-                    get_tape().req_node.children[-1].nodes[0].blocks[0]
+                assert blocks[-n_to_merge + 1].req_node is \
+                    get_block().req_node.children[-1].nodes[0]
                 for block in blocks[-n_to_merge + 1:]:
                     merged.instructions += block.instructions
                     exit_elimination(block)
                     block.purge(retain_usage=False)
                 del blocks[-n_to_merge + 1:]
-                del get_tape().req_node.children[-1]
+                del get_block().req_node.children[-1]
                 merged.children = []
-                RegintOptimizer().run(merged.instructions)
+                RegintOptimizer().run(merged.instructions, get_program())
                 get_tape().active_basicblock = merged
             else:
-                req_node = get_tape().req_node.children[-1].nodes[0]
+                if get_program().verbose:
+                    print(n_opt_loops, 'repetitions')
+                assert not get_program().prevent_breaks
+                req_node = get_block().req_node.children[-1].nodes[0]
                 if util.is_constant(loop_rounds):
                     req_node.children[0].aggregator = lambda x: loop_rounds * x[0]
         if isinstance(n_loops, int):
@@ -1087,17 +1165,22 @@ def map_reduce_single(n_parallel, n_loops, initializer=lambda *x: [],
                 r = reducer(tuplify(loop_body(j)), mem_state)
                 write_state_to_memory(r)
             state = mem_state
-        for i,x in enumerate(state):
-            if use_array:
-                mem_state[i] = x
-            else:
-                mem_state[i].write(x)
+        if use_array and len(state) and \
+           isinstance(types._register, types._vectorizable):
+            mem_state[:] = state.get_vector()
+        else:
+            for i,x in enumerate(state):
+                if use_array:
+                    mem_state[i] = x
+                else:
+                    mem_state[i].write(x)
         def returner():
             return untuplify(tuple(state))
         return returner
     return decorator
 
-def for_range_multithread(n_threads, n_parallel, n_loops, thread_mem_req={}):
+def for_range_multithread(n_threads, n_parallel, n_loops, thread_mem_req={},
+                          budget=None):
     """
     Execute :py:obj:`n_loops` loop bodies in up to :py:obj:`n_threads`
     threads, up to :py:obj:`n_parallel` in parallel per thread.
@@ -1107,9 +1190,10 @@ def for_range_multithread(n_threads, n_parallel, n_loops, thread_mem_req={}):
 
     """
     return map_reduce(n_threads, n_parallel, n_loops, \
-                          lambda *x: [], lambda *x: [], thread_mem_req)
+                          lambda *x: [], lambda *x: [], thread_mem_req,
+                      budget=budget)
 
-def for_range_opt_multithread(n_threads, n_loops):
+def for_range_opt_multithread(n_threads, n_loops, budget=None):
     """
     Execute :py:obj:`n_loops` loop bodies in up to :py:obj:`n_threads`
     threads, in parallel up to an optimization budget per thread
@@ -1138,8 +1222,17 @@ def for_range_opt_multithread(n_threads, n_loops):
         @for_range_opt_multithread(2, [5, 3])
         def f(i, j):
             ...
+
+    Note that you cannot use registers across threads. Use
+    :py:class:`~Compiler.types.MemValue` instead::
+
+        a = MemValue(sint(0))
+        @for_range_opt_multithread(8, 80)
+        def _(i):
+            b = a + 1
+
     """
-    return for_range_multithread(n_threads, None, n_loops)
+    return for_range_multithread(n_threads, None, n_loops, budget=budget)
 
 def multithread(n_threads, n_items=None, max_size=None):
     """
@@ -1149,13 +1242,14 @@ def multithread(n_threads, n_items=None, max_size=None):
 
     :param n_threads: compile-time (int)
     :param n_items: regint/cint/int (default: :py:obj:`n_threads`)
+    :param max_size: maximum size to be processed at once (default: no limit)
 
     The following executes ``f(0, 8)``, ``f(8, 8)``, and
     ``f(16, 9)`` in three different threads:
 
     .. code::
 
-        @multithread(8, 25)
+        @multithread(3, 25)
         def f(base, size):
             ...
     """
@@ -1165,6 +1259,7 @@ def multithread(n_threads, n_items=None, max_size=None):
         return map_reduce(n_threads, None, n_items, initializer=lambda: [],
                           reducer=None, looping=False)
     else:
+        max_size = max(1, max_size)
         def wrapper(function):
             @multithread(n_threads, n_items)
             def new_function(base, size):
@@ -1177,7 +1272,7 @@ def multithread(n_threads, n_items=None, max_size=None):
         return wrapper
 
 def map_reduce(n_threads, n_parallel, n_loops, initializer, reducer, \
-                   thread_mem_req={}, looping=True):
+                   thread_mem_req={}, looping=True, budget=None):
     assert(n_threads != 0)
     if isinstance(n_loops, (list, tuple)):
         split = n_loops
@@ -1219,10 +1314,13 @@ def map_reduce(n_threads, n_parallel, n_loops, initializer, reducer, \
             state_type = type(state[0])
         else:
             state_type = type(state)
+        prevent_breaks = get_program().prevent_breaks
         def f(inc):
+            get_program().prevent_breaks = prevent_breaks
             base = args[get_arg()][0]
+            get_program().base_addresses[base] = None
             if not util.is_constant(thread_rounds):
-                i = base / thread_rounds
+                i = base // thread_rounds
                 overhang = n_loops % n_threads
                 inc = i < overhang
                 base += inc.if_else(i, overhang)
@@ -1241,9 +1339,10 @@ def map_reduce(n_threads, n_parallel, n_loops, initializer, reducer, \
                     return loop_body(base + i)
         prog = get_program()
         thread_args = []
-        if prog.curr_tape == prog.tapes[0]:
+        if prog.curr_tape.singular:
             prog.n_running_threads = n_threads
         if not util.is_zero(thread_rounds):
+            prog.prevent_breaks = False
             tape = prog.new_tape(f, (0,), 'multithread')
             for i in range(n_threads - remainder):
                 mem_state = make_array(initializer())
@@ -1252,6 +1351,7 @@ def map_reduce(n_threads, n_parallel, n_loops, initializer, reducer, \
                     args[remainder + i][1] = mem_state.address
                 thread_args.append((tape, remainder + i))
         if remainder:
+            prog.prevent_breaks = False
             tape1 = prog.new_tape(f, (1,), 'multithread1')
             for i in range(remainder):
                 mem_state = make_array(initializer())
@@ -1260,11 +1360,14 @@ def map_reduce(n_threads, n_parallel, n_loops, initializer, reducer, \
                     args[i][1] = mem_state.address
                 thread_args.append((tape1, i))
         prog.n_running_threads = None
+        prog.prevent_breaks = False
         threads = prog.run_tapes(thread_args)
         for thread in threads:
             prog.join_tape(thread)
+        prog.free_later()
+        prog.prevent_breaks = prevent_breaks
         if len(state):
-            if thread_rounds:
+            if not util.is_zero(thread_rounds):
                 for i in range(n_threads - remainder):
                     state = reducer(Array(len(state), state_type, \
                                               args[remainder + i][1]), state)
@@ -1366,6 +1469,18 @@ def tree_reduce_multithread(n_threads, function, vector):
         left = (left + 1) // 2
     return inputs[0]
 
+def tree_reduce(function, sequence):
+    """ Round-efficient reduction. The following computes the maximum
+    of the list :py:obj:`l`::
+
+      m = tree_reduce(lambda x, y: x.max(y), l)
+
+    :param function: reduction function taking two arguments
+    :param sequence: list, vector, or array
+
+    """
+    return util.tree_reduce(function, sequence)
+
 def foreach_enumerate(a):
     """ Run-time loop over public data. This uses
     ``Player-Data/Public-Input/<progname>``. Example:
@@ -1393,62 +1508,68 @@ def foreach_enumerate(a):
         return f
     return decorator
 
-def while_loop(loop_body, condition, arg, g=None):
+def while_loop(loop_body, condition, arg=None, g=None):
     if not callable(condition):
         raise CompilerError('Condition must be callable')
-    # store arg in stack
-    pre_condition = condition(arg)
-    if not isinstance(pre_condition, (bool,int)) or pre_condition:
+    if arg is None:
+        pre_condition = condition()
+        def loop_fn():
+            loop_body()
+            return condition()
+    else:
+        pre_condition = condition(arg)
         arg = regint(arg)
         def loop_fn():
             result = loop_body(arg)
             if isinstance(result, MemValue):
                 result = result.read()
-            result.link(arg)
-            cont = condition(result)
-            return cont
+            arg.link(type(arg)(result))
+            return condition(result)
+    if not isinstance(pre_condition, (bool,int)) or pre_condition:
         if_statement(pre_condition, lambda: do_while(loop_fn, g=g))
 
 def while_do(condition, *args):
-    """ While-do loop. The decorator requires an initialization, and
-    the loop body function must return a suitable input for
-    :py:obj:`condition`.
+    """ While-do loop.
 
     :param condition: function returning public integer (regint/cint/int)
-    :param args: arguments given to :py:obj:`condition` and loop body
 
     The following executes an ten-fold loop:
 
     .. code::
 
-        @while_do(lambda x: x < 10, regint(0))
-        def f(i):
+        i = regint(0)
+        @while_do(lambda: i < 10)
+        def f():
             ...
-            return i + 1
+            i.update(i + 1)
+            ...
+
     """
     def decorator(loop_body):
         while_loop(loop_body, condition, *args)
         return loop_body
     return decorator
 
-def do_loop(condition, loop_fn):
-    # store initial condition to stack
-    pushint(condition if isinstance(condition,regint) else regint(condition))
-    def wrapped_loop():
-        # save condition to stack
-        new_cond = regint.pop()
-        # run the loop
-        condition = loop_fn(new_cond)
-        pushint(condition)
-        return condition
-    do_while(wrapped_loop)
-    regint.pop()
-
-def _run_and_link(function, g=None):
+def _run_and_link(function, g=None, lock_lists=True, allow_return=False):
     if g is None:
         g = function.__globals__
+        if lock_lists:
+            class A(list):
+                def __init_(self, l):
+                    self[:] = l
+                def __setitem__(*args):
+                    raise Exception('you cannot change lists in branches, '
+                                    'use Array or MultiArray instead')
+                __delitem__ = append = clear = extend = insert = __setitem__
+                pop = remove = reverse = sort = __setitem__
+            for x in g:
+                if isinstance(g[x], list):
+                    g[x] = A(g[x])
     pre = copy.copy(g)
     res = function()
+    if res is not None and not allow_return:
+        raise CompilerError('Conditional blocks cannot return values. '
+                            'Use if_else instead: https://mp-spdz.readthedocs.io/en/latest/Compiler.html#Compiler.types.regint.if_else')
     _link(pre, g)
     return res
 
@@ -1456,12 +1577,12 @@ def _link(pre, g):
     if g:
         from .types import _single
         for name, var in pre.items():
-            if isinstance(var, (program.Tape.Register, _single, _vec)):
+            if isinstance(var, (Tape.Register, _single, _vec)):
                 new_var = g[name]
                 if util.is_constant_float(new_var):
                     raise CompilerError('cannot reassign constants in blocks')
                 if id(new_var) != id(var):
-                    new_var.link(var)
+                    new_var.link(new_var.conv(var))
 
 def do_while(loop_fn, g=None):
     """ Do-while loop. The loop is stopped if the return value is zero.
@@ -1475,13 +1596,13 @@ def do_while(loop_fn, g=None):
             return regint(0)
     """
     scope = instructions.program.curr_block
-    parent_node = get_tape().req_node
+    parent_node = get_block().req_node
     # possibly unknown loop count
     get_tape().open_scope(lambda x: x[0].set_all(float('Inf')), \
                               name='begin-loop')
     get_tape().loop_breaks.append([])
     loop_block = instructions.program.curr_block
-    condition = _run_and_link(loop_fn, g)
+    condition = _run_and_link(loop_fn, g, allow_return=True)
     if callable(condition):
         condition = condition()
     branch = instructions.jmpnz(regint.conv(condition), 0, add_to_prog=False)
@@ -1501,11 +1622,20 @@ def if_then(condition):
     state = State()
     if callable(condition):
         condition = condition()
+    try:
+        if not condition.is_clear:
+            raise CompilerError(
+                'cannot branch on secret values, use if_else instead: '
+                'https://mp-spdz.readthedocs.io/en/latest/Compiler.html#Compiler.types.sint.if_else')
+    except AttributeError:
+        pass
     state.condition = regint.conv(condition)
     state.start_block = instructions.program.curr_block
     state.req_child = get_tape().open_scope(lambda x: x[0].max(x[1]), \
                                                    name='if-block')
     state.has_else = False
+    state.closed_if = False
+    state.caller = [frame[1:] for frame in inspect.stack()[1:]]
     instructions.program.curr_tape.if_states.append(state)
 
 def else_then():
@@ -1517,9 +1647,10 @@ def else_then():
         raise CompilerError('else block already defined')
     # run the else block
     state.if_exit_block = instructions.program.curr_block
-    state.req_child.add_node(get_tape(), 'else-block')
+    req_node = state.req_child.add_node(get_tape(), 'else-block')
     instructions.program.curr_tape.start_new_basicblock(state.start_block, \
-                                                            name='else-block')
+                                                        name='else-block',
+                                                        req_node=req_node)
     state.else_block = instructions.program.curr_block
     state.has_else = True
 
@@ -1619,6 +1750,7 @@ def if_e(condition):
         else:
             if_then(condition)
             _run_and_link(body)
+            get_tape().if_states[-1].closed_if = True
     return decorator
 
 def else_(body):
@@ -1628,35 +1760,37 @@ def else_(body):
             _run_and_link(body)
         if_states.pop()
     else:
+        if not if_states[-1].closed_if:
+            raise CompilerError('@if_e not closed before else block')
         else_then()
         _run_and_link(body)
         end_if()
 
 def and_(*terms):
-    res = regint(0)
-    for term in terms:
-        if_then(term())
-    old_res = res
-    res = regint(1)
-    res.link(old_res)
-    for term in terms:
-        else_then()
-        end_if()
     def load_result():
+        res = regint(0)
+        for term in terms:
+            if_then(term())
+        old_res = res
+        res = regint(1)
+        res.link(old_res)
+        for term in terms:
+            else_then()
+            end_if()
         return res
     return load_result
 
 def or_(*terms):
-    res = regint(1)
-    for term in terms:
-        if_then(term())
-        else_then()
-    old_res = res
-    res = regint(0)
-    res.link(old_res)
-    for term in terms:
-        end_if()
     def load_result():
+        res = regint(1)
+        for term in terms:
+            if_then(term())
+            else_then()
+        old_res = res
+        res = regint(0)
+        res.link(old_res)
+        for term in terms:
+            end_if()
         return res
     return load_result
 
@@ -1715,14 +1849,42 @@ def listen_for_clients(port):
     """
     instructions.listen(regint.conv(port))
 
-def accept_client_connection(port):
+def accept_client_connection(port, players=None):
     """ Accept client connection on specific port base.
 
     :param port: port base (int/regint/cint)
+    :param players: subset of players (default: all)
     :returns: client id
+
     """
     res = regint()
-    instructions.acceptclientconnection(res, regint.conv(port))
+    if players is None:
+        instructions.acceptclientconnection(res, regint.conv(port))
+    else:
+        @if_e(sum(regint(players) ==
+                 get_player_id()._v.expand_to_vector(len(players))))
+        def _():
+            res.update(accept_client_connection(port))
+        @else_
+        def _():
+            res.update(-1)
+    return res
+
+def init_client_connection(host, port, my_id, relative_port=True):
+    """ Initiate connection to another party as client.
+
+    :param host: hostname
+    :param port: port base (int/regint/cint)
+    :param my_id: client id to use
+    :param relative_port: whether to add party number to port number
+    :returns: connection id
+
+    """
+    if relative_port:
+        port = (port + get_player_id())._v
+    res = regint()
+    instructions.initclientconnection(
+        res, regint.conv(port), regint.conv(my_id), host)
     return res
 
 def break_point(name=''):
@@ -1823,14 +1985,16 @@ def cint_cint_division(a, b, k, f):
     return (sign_a * sign_b) * A
 
 from Compiler.program import Program
-def sint_cint_division(a, b, k, f, kappa):
+
+@instructions_base.ret_cisc
+def sint_cint_division(a, b, k, f, nearest=False):
     """
         type(a) = sint, type(b) = cint
     """
     theta = int(ceil(log(k/3.5) / log(2)))
     two = cint(2) * two_power(f)
     sign_b = cint(1) - 2 * cint(b.less_than(0, k))
-    sign_a = sint(1) - 2 * comparison.LessThanZero(a, k, kappa)
+    sign_a = sint(1) - 2 * comparison.LessThanZero(a, k)
     absolute_b = b * sign_b
     absolute_a = a * sign_a
     w0 = approximate_reciprocal(absolute_b, k, f, theta)
@@ -1839,21 +2003,21 @@ def sint_cint_division(a, b, k, f, kappa):
     B = absolute_b
     W = w0
 
-    @for_range(1, theta)
-    def block(i):
-        A.link(TruncPr(A * W, 2*k, f, kappa))
-        temp = (B * W) >> f
-        W.link(two - temp)
-        B.link(temp)
+    for i in range(1, theta):
+        A = (A * W).round(2 * k, f, nearest=nearest, signed=True)
+        temp = (B * W + 2 * (f - 1)) >> f
+        W = two - temp
+        B = temp
     return (sign_a * sign_b) * A
 
-def IntDiv(a, b, k, kappa=None):
+def IntDiv(a, b, k):
     l = 2 * k + 1
+    b = a.conv(b)
     return FPDiv(a.extend(l) << k, b.extend(l) << k, l, k,
-                 kappa, nearest=True)
+                 nearest=True)
 
 @instructions_base.ret_cisc
-def FPDiv(a, b, k, f, kappa, simplex_flag=False, nearest=False):
+def FPDiv(a, b, k, f, simplex_flag=False, nearest=False):
     """
         Goldschmidt method as presented in Catrina10,
     """
@@ -1870,43 +2034,46 @@ def FPDiv(a, b, k, f, kappa, simplex_flag=False, nearest=False):
     assert 2 * f > k - nearest
     theta = int(ceil(log(k/3.5) / log(2)))
 
+    l_y = k + 3 * f - res_f
+    comparison.require_ring_size(
+        l_y, 'division (https://www.ifca.ai/pub/fc10/31_47.pdf)')
+
     base.set_global_vector_size(b.size)
-    alpha = b.get_type(2 * k).two_power(2*f)
-    w = AppRcr(b, k, f, kappa, simplex_flag, nearest).extend(2 * k)
+    alpha = b.get_type(2 * k).two_power(2*f, size=b.size)
+    w = AppRcr(b, k, f, simplex_flag, nearest).extend(2 * k)
     x = alpha - b.extend(2 * k) * w
     base.reset_global_vector_size()
 
-    l_y = k + 3 * f - res_f
     y = a.extend(l_y) * w
-    y = y.round(l_y, f, kappa, nearest, signed=True)
+    y = y.round(l_y, f, nearest, signed=True)
 
     for i in range(theta - 1):
         x = x.extend(2 * k)
         y = y.extend(l_y) * (alpha + x).extend(l_y)
         x = x * x
-        y = y.round(l_y, 2*f, kappa, nearest, signed=True)
-        x = x.round(2*k, 2*f, kappa, nearest, signed=True)
+        y = y.round(l_y, 2*f, nearest, signed=True)
+        x = x.round(2*k, 2*f, nearest, signed=True)
 
     x = x.extend(2 * k)
     y = y.extend(l_y) * (alpha + x).extend(l_y)
-    y = y.round(l_y, 3 * f - res_f, kappa, nearest, signed=True)
+    y = y.round(l_y, 3 * f - res_f, nearest, signed=True)
     return y
 
-def AppRcr(b, k, f, kappa=None, simplex_flag=False, nearest=False):
+def AppRcr(b, k, f, simplex_flag=False, nearest=False):
     """
         Approximate reciprocal of [b]:
         Given [b], compute [1/b]
     """
     alpha = b.get_type(2 * k)(int(2.9142 * 2**k))
-    c, v = b.Norm(k, f, kappa, simplex_flag)
+    c, v = b.Norm(k, f, simplex_flag)
     #v should be 2**{k - m} where m is the length of the bitwise repr of [b]
     d = alpha - 2 * c
     w = d * v
-    w = w.round(2 * k + 1, 2 * (k - f), kappa, nearest, signed=True)
+    w = w.round(2 * k + 1, 2 * (k - f), nearest, signed=True)
     # now w * 2 ^ {-f} should be an initial approximation of 1/b
     return w
 
-def Norm(b, k, f, kappa, simplex_flag=False):
+def Norm(b, k, f, simplex_flag=False):
     """
         Computes secret integer values [c] and [v_prime] st.
         2^{k-1} <= c < 2^k and c = b*v_prime
@@ -1914,7 +2081,7 @@ def Norm(b, k, f, kappa, simplex_flag=False):
     # For simplex, we can get rid of computing abs(b)
     temp = None
     if simplex_flag == False:
-        temp = comparison.LessThanZero(b, k, kappa)
+        temp = b.less_than(0, k)
     elif simplex_flag == True:
         temp = cint(0)
 
@@ -1922,15 +2089,15 @@ def Norm(b, k, f, kappa, simplex_flag=False):
     absolute_val = sign * b
 
     #next 2 lines actually compute the SufOR for little indian encoding
-    bits = absolute_val.bit_decompose(k, kappa, maybe_mixed=True)[::-1]
-    suffixes = PreOR(bits, kappa)[::-1]
+    bits = absolute_val.bit_decompose(k, maybe_mixed=True)[::-1]
+    suffixes = PreOR(bits)[::-1]
 
     z = [0] * k
     for i in range(k - 1):
         z[i] = suffixes[i] - suffixes[i+1]
     z[k - 1] = suffixes[k-1]
 
-    acc = sint.bit_compose(reversed(z))
+    acc = b.bit_compose(reversed(z))
 
     part_reciprocal = absolute_val * acc
     signed_acc = sign * acc

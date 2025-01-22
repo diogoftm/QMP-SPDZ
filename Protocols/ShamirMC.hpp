@@ -8,6 +8,9 @@
 
 #include "ShamirMC.h"
 
+#include "MAC_Check_Base.hpp"
+#include "Shamir.hpp"
+
 template<class T>
 ShamirMC<T>::ShamirMC(int t) :
         os(0), player(0), threshold()
@@ -36,14 +39,15 @@ void ShamirMC<T>::POpen_Begin(vector<typename T::open_type>& values,
 
 template<class T>
 vector<typename T::open_type::Scalar> ShamirMC<T>::get_reconstruction(
-        const Player& P)
+        const Player& P, int n_relevant_players)
 {
-    int n_relevant_players = threshold + 1;
+    if (n_relevant_players == 0)
+        n_relevant_players = threshold + 1;
     vector<rec_type> reconstruction(n_relevant_players);
+    vector<int> points(n_relevant_players);
     for (int i = 0; i < n_relevant_players; i++)
-        reconstruction[i] = Shamir<T>::get_rec_factor(P.get_player(i),
-                P.num_players(), P.my_num(), n_relevant_players);
-    return reconstruction;
+        points[i] = P.get_player(i);
+    return Shamir<T>::get_rec_factors(points);
 }
 
 template<class T>
@@ -72,7 +76,7 @@ void ShamirMC<T>::prepare(const vector<T>& S, const Player& P)
 }
 
 template<class T>
-void ShamirMC<T>::prepare_open(const T& share)
+void ShamirMC<T>::prepare_open(const T& share, int)
 {
     share.pack(os->mine);
 }
@@ -112,11 +116,19 @@ void ShamirMC<T>::finalize(vector<typename T::open_type>& values,
 {
     values.clear();
     for (size_t i = 0; i < S.size(); i++)
-        values.push_back(finalize_open());
+        values.push_back(finalize_raw());
 }
 
 template<class T>
-typename T::open_type ShamirMC<T>::finalize_open()
+array<typename T::open_type*, 2> ShamirMC<T>::finalize_several(size_t n)
+{
+    this->values.clear();
+    finalize(this->values, vector<T>(n));
+    return MAC_Check_Base<T>::finalize_several(n);
+}
+
+template<class T>
+typename T::open_type ShamirMC<T>::finalize_raw()
 {
     assert(reconstruction.size());
     typename T::open_type res;

@@ -10,10 +10,12 @@
 #include "Math/gfp.h"
 #include "ECDSA/P256Element.h"
 #include "GC/VectorInput.h"
+#include "Protocols/SPDZ.h"
 
 #include "ECDSA/preprocessing.hpp"
 #include "ECDSA/sign.hpp"
 #include "Protocols/Beaver.hpp"
+#include "Protocols/Hemi.hpp"
 #include "Protocols/fake-stuff.hpp"
 #include "Protocols/Share.hpp"
 #include "Protocols/MAC_Check.hpp"
@@ -44,13 +46,15 @@ int main(int argc, const char** argv)
     typedef Share<P256Element::Scalar> pShare;
     string prefix = get_prep_sub_dir<pShare>(PREP_DIR "ECDSA/", 2);
     read_mac_key(prefix, N, keyp);
+    pShare::set_mac_key(keyp);
+
+    pShare::MAC_Check::setup(P);
+    Share<P256Element>::MAC_Check::setup(P);
 
     DataPositions usage;
     Sub_Data_Files<pShare> prep(N, prefix, usage);
     typename pShare::Direct_MC MCp(keyp);
     ArithmeticProcessor _({}, 0);
-    BaseMachine machine;
-    machine.ot_setups.push_back({P, false});
     SubProcessor<pShare> proc(_, MCp, prep, P);
 
     pShare sk, __;
@@ -60,4 +64,8 @@ int main(int argc, const char** argv)
     preprocessing(tuples, n_tuples, sk, proc, opts);
     check(tuples, sk, keyp, P);
     sign_benchmark(tuples, sk, MCp, P, opts);
+
+    pShare::MAC_Check::teardown();
+    Share<P256Element>::MAC_Check::teardown();
+    P256Element::finish();
 }

@@ -15,10 +15,12 @@
 #include "GC/TinierSecret.h"
 #include "GC/TinyMC.h"
 #include "GC/SemiSecret.h"
+#include "GC/RepPrep.h"
 
 #include "Math/Setup.h"
 #include "Processor/Data_Files.h"
 
+#include "Protocols/Share.hpp"
 #include "Protocols/fake-stuff.hpp"
 #include "Protocols/ReplicatedPrep.hpp"
 #include "Processor/Data_Files.hpp"
@@ -34,9 +36,10 @@ using namespace std;
 string PREP_DATA_PREFIX;
 
 template<class T>
-void check_mult_triples(const typename T::mac_key_type& key,int N,vector<Sub_Data_Files<T>*>& dataF)
+void check_mult_triples(const KeySetup<T>& key_setup,int N,vector<Sub_Data_Files<T>*>& dataF)
 {
-  typename T::clear a,b,c,mac;
+  typename T::clear a,b,c;
+  typename T::mac_type mac;
   vector<T> Sa(N),Sb(N),Sc(N);
   int n = 0;
 
@@ -44,7 +47,11 @@ void check_mult_triples(const typename T::mac_key_type& key,int N,vector<Sub_Dat
       while (!dataF[0]->eof(DATA_TRIPLE))
         {
           for (int i = 0; i < N; i++)
-            dataF[i]->get_three(DATA_TRIPLE, Sa[i], Sb[i], Sc[i]);
+            {
+              T::set_mac_key(key_setup.key_shares.at(i));
+              dataF[i]->get_three(DATA_TRIPLE, Sa[i], Sb[i], Sc[i]);
+            }
+          auto& key = key_setup.key;
           check_share(Sa, a, mac, N, key);
           check_share(Sb, b, mac, N, key);
           check_share(Sc, c, mac, N, key);
@@ -61,7 +68,10 @@ void check_mult_triples(const typename T::mac_key_type& key,int N,vector<Sub_Dat
   }
   catch (exception& e)
   {
-      cout << "Error '" << e.what() << "' after " << n << " triples of type " << T::type_string() << endl;
+      cout << "Error after " << n << " triples of type " << T::type_string();
+      if (n == 0)
+          cout << ": " << e.what();
+      cout << endl;
   }
 }
 
@@ -97,9 +107,10 @@ void check_tuple(const T& a, const T& b, int n, Dtype type)
 }
 
 template<class T>
-void check_tuples(const typename T::mac_key_type& key,int N,vector<Sub_Data_Files<T>*>& dataF, Dtype type)
+void check_tuples(const KeySetup<T>& key_setup,int N,vector<Sub_Data_Files<T>*>& dataF, Dtype type)
 {
-  typename T::clear a,b,c,mac,res;
+  typename T::clear a,b,c,res;
+  typename T::mac_type mac;
   vector<T> Sa(N),Sb(N),Sc(N);
   int n = 0;
 
@@ -107,9 +118,12 @@ void check_tuples(const typename T::mac_key_type& key,int N,vector<Sub_Data_File
       while (!dataF[0]->eof(type))
         {
           for (int i = 0; i < N; i++)
-            dataF[i]->get_two(type, Sa[i], Sb[i]);
-          check_share(Sa, a, mac, N, key);
-          check_share(Sb, b, mac, N, key);
+            {
+              T::set_mac_key(key_setup.key_shares.at(i));
+              dataF[i]->get_two(type, Sa[i], Sb[i]);
+            }
+          check_share(Sa, a, mac, N, key_setup.key);
+          check_share(Sb, b, mac, N, key_setup.key);
           check_tuple(a, b, n, type);
           n++;
         }
@@ -125,9 +139,10 @@ void check_tuples(const typename T::mac_key_type& key,int N,vector<Sub_Data_File
 }
 
 template<class T>
-void check_bits(const typename T::mac_key_type& key,int N,vector<Sub_Data_Files<T>*>& dataF)
+void check_bits(const KeySetup<T>& key_setup,int N,vector<Sub_Data_Files<T>*>& dataF)
 {
-  typename T::clear a,b,c,mac,res;
+  typename T::clear a,b,c,res;
+  typename T::mac_type mac;
   vector<T> Sa(N),Sb(N),Sc(N);
   int n = 0;
 
@@ -135,8 +150,11 @@ void check_bits(const typename T::mac_key_type& key,int N,vector<Sub_Data_Files<
       while (!dataF[0]->eof(DATA_BIT))
       {
           for (int i = 0; i < N; i++)
+            {
+              T::set_mac_key(key_setup.key_shares.at(i));
               dataF[i]->get_one(DATA_BIT, Sa[i]);
-          check_share(Sa, a, mac, N, key);
+            }
+          check_share(Sa, a, mac, N, key_setup.key);
 
           if (!(a.is_zero() || a.is_one()))
           {
@@ -155,9 +173,10 @@ void check_bits(const typename T::mac_key_type& key,int N,vector<Sub_Data_Files<
 }
 
 template<class T>
-void check_inputs(const typename T::mac_key_type& key,int N,vector<Sub_Data_Files<T>*>& dataF)
+void check_inputs(const KeySetup<T>& key_setup,int N,vector<Sub_Data_Files<T>*>& dataF)
 {
-  typename T::clear a, mac, x;
+  typename T::clear a, x;
+  typename T::mac_type mac;
   vector<T> Sa(N);
 
   for (int player = 0; player < N; player++)
@@ -167,8 +186,11 @@ void check_inputs(const typename T::mac_key_type& key,int N,vector<Sub_Data_File
           while (!dataF[0]->input_eof(player))
           {
               for (int i = 0; i < N; i++)
+                {
+                  T::set_mac_key(key_setup.key_shares.at(i));
                   dataF[i]->get_input(Sa[i], x, player);
-              check_share(Sa, a, mac, N, key);
+                }
+              check_share(Sa, a, mac, N, key_setup.key);
               if (a != (x))
                   throw bad_value();
               n++;
@@ -184,30 +206,46 @@ void check_inputs(const typename T::mac_key_type& key,int N,vector<Sub_Data_File
 }
 
 template<class T>
-vector<Sub_Data_Files<T>*> setup(int N, DataPositions& usage, int thread_num = -1)
+vector<Sub_Data_Files<T>*> setup(int N,
+    DataPositions& usage, int thread_num = -1)
 {
   vector<Sub_Data_Files<T>*> dataF(N);
   for (int i = 0; i < N; i++)
-    dataF[i] = new Sub_Data_Files<T>(i, N,
-        get_prep_sub_dir<T>(PREP_DATA_PREFIX, N), usage, thread_num);
+    {
+      dataF[i] = new Sub_Data_Files<T>(i, N,
+          get_prep_sub_dir<T>(PREP_DATA_PREFIX, N), usage, thread_num);
+    }
   return dataF;
+}
+
+template<class T>
+void check_with_error(int N, bool only_bits = false)
+{
+  auto key_setup = read_global_mac_key<T>(
+      get_prep_sub_dir<T>(PREP_DATA_PREFIX, N), N);
+  DataPositions usage(N);
+  auto dataF = setup<T>(N, usage);
+  check_bits(key_setup, N, dataF);
+
+  if (not only_bits)
+  {
+    check_mult_triples(key_setup, N, dataF);
+    check_inputs<T>(key_setup, N, dataF);
+    check_tuples<T>(key_setup, N, dataF, DATA_SQUARE);
+    check_tuples<T>(key_setup, N, dataF, DATA_INVERSE);
+  }
 }
 
 template<class T>
 void check(int N, bool only_bits = false)
 {
-  typename T::mac_key_type key;
-  read_global_mac_key(get_prep_sub_dir<T>(PREP_DATA_PREFIX, N), N, key);
-  DataPositions usage(N);
-  auto dataF = setup<T>(N, usage);
-  check_bits(key, N, dataF);
-
-  if (not only_bits)
+  try
   {
-    check_mult_triples(key, N, dataF);
-    check_inputs<T>(key, N, dataF);
-    check_tuples<T>(key, N, dataF, DATA_SQUARE);
-    check_tuples<T>(key, N, dataF, DATA_INVERSE);
+      check_with_error<T>(N, only_bits);
+  }
+  catch (exception& e)
+  {
+      cerr << "Error: " << e.what() << endl;
   }
 }
 
@@ -298,8 +336,12 @@ int main(int argc, const char** argv)
   if (!use_montgomery)
   {
     // no montgomery
-    gfp::init_field(gfp::pr(), false);
+    auto pr = gfp::pr();
+    gfp::reset();
+    gfp::init_field(pr, false);
   }
+
+  OnlineOptions::singleton.options.push_back("debug_file_signature");
 
   int N = nparties;
 
@@ -321,18 +363,5 @@ int main(int argc, const char** argv)
     {
       gf2n_short::init_field(lg2);
       check<Share<gf2n_short>>(N);
-    }
-
-  if (N == 3)
-    {
-      DataPositions pos(N);
-      auto dataF = setup<Rep3Share<Integer>>(N, pos);
-      check_bits({}, N, dataF);
-
-      check<Rep3Share<gfp>>({}, N);
-
-      auto dataF2 = setup<GC::MaliciousRepSecret>(N, pos, 0);
-      check_mult_triples({}, N, dataF2);
-      check_bits({}, N, dataF2);
     }
 }

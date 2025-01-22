@@ -53,6 +53,25 @@ public:
             *out << __pf;
         return *this;
     }
+
+    void fill(char c)
+    {
+        if (out)
+            out->fill(c);
+    }
+
+    void width(streamsize w)
+    {
+        if (out)
+            out->width(w);
+    }
+
+    template<class T>
+    void signed_output(const T& x)
+    {
+        if (out)
+            x.output(*out, true, true);
+    }
 };
 
 #endif /* TOOLS_SWITCHABLEOUTPUT_H_ */

@@ -9,12 +9,14 @@
 #include "Protocols/MAC_Check.h"
 #include "GC/SemiSecret.h"
 #include "GC/SemiPrep.h"
+#include "Processor/OnlineOptions.h"
 
 #include "OT/Triple.hpp"
 #include "OT/OTMultiplier.hpp"
 #include "Protocols/MAC_Check.hpp"
 #include "Protocols/SemiInput.hpp"
 #include "Protocols/SemiMC.hpp"
+#include "Protocols/mac_key.hpp"
 
 #include <sstream>
 #include <fstream>
@@ -23,7 +25,22 @@
 template<class T>
 void* run_ot_thread(void* ptr)
 {
-    ((OTMultiplierBase*)ptr)->multiply();
+    bigint::init_thread();
+    auto multiplier = (OTMultiplierBase*) ptr;
+    if (OnlineOptions::singleton.has_option("throw_exceptions"))
+        multiplier->multiply();
+    else
+    {
+        try
+        {
+            multiplier->multiply();
+        }
+        catch (exception& e)
+        {
+            cerr << "Fatal error in OT thread: " << e.what() << endl;
+            exit(1);
+        }
+    }
     return NULL;
 }
 
@@ -68,6 +85,19 @@ Spdz2kTripleGenerator<T>::Spdz2kTripleGenerator(const OTTripleSetup& setup,
 }
 
 template<class T>
+void OTTripleGenerator<T>::set_batch_size(int batch_size)
+{
+    // limit to ~1 GB
+    batch_size = min(batch_size, int(1e7 / sizeof(T) / sizeof(T)));
+    if (OnlineOptions::singleton.has_option("verbose_ot"))
+        fprintf(stderr, "OT batch size %d (share size %d)\n", batch_size,
+                int(sizeof(T)));
+    nTriplesPerLoop = DIV_CEIL(batch_size, nloops);
+    nTriples = nTriplesPerLoop * nloops;
+    nPreampTriplesPerLoop = nTriplesPerLoop * nAmplify;
+}
+
+template<class T>
 OTTripleGenerator<T>::OTTripleGenerator(const OTTripleSetup& setup,
         const Names& names, int thread_num, int _nTriples, int nloops,
         MascotParams& machine, mac_key_type mac_key, Player* parentPlayer) :
@@ -82,11 +112,9 @@ OTTripleGenerator<T>::OTTripleGenerator(const OTTripleSetup& setup,
         machine(machine),
         MC(0)
 {
-    nTriplesPerLoop = DIV_CEIL(_nTriples, nloops);
-    nTriples = nTriplesPerLoop * nloops;
     field_size = T::open_type::size() * 8;
     nAmplify = machine.amplify ? N_AMPLIFY : 1;
-    nPreampTriplesPerLoop = nTriplesPerLoop * nAmplify;
+    set_batch_size(_nTriples);
 
     int n = nparties;
     //baseReceiverInput = machines[0]->baseReceiverInput;
@@ -98,6 +126,12 @@ OTTripleGenerator<T>::OTTripleGenerator(const OTTripleSetup& setup,
     baseSenderInputs = setup.baseSenderInputs;
     players.resize(n-1);
 
+    // copy base OT inputs + outputs
+    for (int j = 0; j < 128; j++)
+    {
+        baseReceiverInput.set_bit(j, (unsigned int)setup.get_base_receiver_input(j));
+    }
+
     for (int i = 0; i < n-1; i++)
     {
         // i for indexing, other_player is actual number
@@ -106,12 +140,6 @@ OTTripleGenerator<T>::OTTripleGenerator(const OTTripleSetup& setup,
             other_player = i + 1;
         else
             other_player = i;
-
-        // copy base OT inputs + outputs
-        for (int j = 0; j < 128; j++)
-        {
-            baseReceiverInput.set_bit(j, (unsigned int)setup.get_base_receiver_input(j));
-        }
 
         players[i] = new VirtualTwoPartyPlayer(globalPlayer, other_player);
     }
@@ -190,9 +218,9 @@ void NPartyTripleGenerator<T>::generate()
     {
         outputFile.open(ss.str().c_str());
         if (machine.generateMACs or not T::clear::invertible)
-            file_signature<T>().output(outputFile);
+            file_signature<T>(this->mac_key).output(outputFile);
         else
-            file_signature<typename T::clear>().output(outputFile);
+            file_signature<SemiShare<typename T::clear>>().output(outputFile);
     }
 
     if (machine.generateBits)
@@ -242,6 +270,7 @@ void NPartyTripleGenerator<W>::generateInputs(int player)
     inputs.resize(toCheck);
     auto mac_key = this->get_mac_key();
     SemiInput<SemiShare<T>> input(0, globalPlayer);
+    input.maybe_init(globalPlayer);
     input.reset_all(globalPlayer);
     vector<T> secrets(toCheck);
     if (mine)
@@ -274,9 +303,9 @@ void NPartyTripleGenerator<W>::generateInputs(int player)
     inputs.resize(nTriplesPerLoop);
 
     typename W::input_check_type::MAC_Check MC(mac_key);
-    MC.POpen(check_sum, globalPlayer);
     // use zero element because all is perfectly randomized
     MC.set_random_element({});
+    MC.POpen(check_sum, globalPlayer);
     MC.Check(globalPlayer);
 }
 
@@ -378,8 +407,7 @@ void Spdz2kTripleGenerator<T>::generateTriples()
 	b_padded_bits.resize(8 * Z2<K + 2 * S>::N_BYTES * (nTriplesPerLoop + 1));
 	vector< PlainTriple_<Z2<K + 2 * S>, Z2<K + S>, 2> > amplifiedTriples(nTriplesPerLoop);
 	uncheckedTriples.resize(nTriplesPerLoop);
-	MAC_Check_Z2k<Z2<K + 2 * S>, Z2<S>, Z2<K + S>, Share<Z2<K + 2 * S>> > MC(
-			this->get_mac_key());
+	typename T::prep_check_type::MAC_Check MC(this->get_mac_key());
 
 	this->start_progress();
 
@@ -480,9 +508,80 @@ void OTTripleGenerator<U>::generatePlainTriples()
         plainTripleRound(i);
 }
 
+template<class T>
+void OTTripleGenerator<T>::generatePlainBits()
+{
+    assert(ot_multipliers.size() == 1);
+
+    machine.set_passive();
+    machine.output = false;
+
+    int batch_size = nPreampTriplesPerLoop;
+    int n = multiple_minimum(batch_size, T::Rectangle::n_rows_allocated());
+
+    valueBits.resize(1);
+    valueBits[0].resize(n);
+    valueBits[0].randomize(share_prg);
+
+    signal_multipliers(DATA_BIT);
+
+    wait_for_multipliers();
+    plainBits.clear();
+
+    typename T::open_type two = 2;
+
+    for (int j = 0; j < n; j++)
+    {
+        if (j % T::Rectangle::n_rows_allocated() < T::open_type::length())
+        {
+            bool b = valueBits[0].get_bit(j);
+            plainBits.push_back({b, b});
+            plainBits.back().first += ot_multipliers[0]->c_output[j] * two;
+        }
+    }
+}
+
+template<class T>
+void OTTripleGenerator<T>::generateMixedTriples()
+{
+    assert(ot_multipliers.size() == 1);
+
+    machine.set_passive();
+    machine.output = false;
+
+    int n = multiple_minimum(nPreampTriplesPerLoop, 8);
+
+    if (OnlineOptions::singleton.has_option("verbose_mixed"))
+        fprintf(stderr, "generating %d mixed triples\n", n);
+
+    valueBits.resize(2);
+    valueBits[0].resize(n);
+    valueBits[0].randomize(share_prg);
+    valueBits[1].resize(n * T::open_type::N_BITS);
+    valueBits[1].randomize(share_prg);
+
+    signal_multipliers(DATA_MIXED);
+
+    wait_for_multipliers();
+    mixedTriples.clear();
+
+    for (int j = 0; j < n; j++)
+    {
+        auto a = valueBits[0].get_bit(j);
+        auto b = valueBits[1].template get_portion<typename T::open_type>(j);
+        auto c = a ? b : typename T::open_type();
+        for (auto& x : ot_multipliers)
+            c += x->c_output[j];
+        mixedTriples.push_back({{a, b, c}});
+    }
+}
+
 template<class U>
 void OTTripleGenerator<U>::plainTripleRound(int k)
 {
+    if (OnlineOptions::singleton.has_option("verbose_triples"))
+        fprintf(stderr, "generating %d triples\n", nPreampTriplesPerLoop);
+
     typedef typename U::open_type T;
 
     if (not (machine.amplify or machine.output))
@@ -673,7 +772,7 @@ void MascotTripleGenerator<T>::sacrifice(typename T::MAC_Check& MC, PRNG& G)
     auto& outputFile = this->outputFile;
     auto& uncheckedTriples = this->uncheckedTriples;
 
-    assert(T::clear::length() >= 40);
+    check_field_size<typename T::clear>();
 
     vector<T> maskedAs(nTriplesPerLoop);
     vector<TripleToSacrifice<T> > maskedTriples(nTriplesPerLoop);
@@ -729,6 +828,7 @@ void Spdz2kTripleGenerator<W>::sacrificeZ2k(U& MC, PRNG& G)
 {
     typedef sacri_type T;
     typedef open_type V;
+    typedef typename W::prep_check_type prep_check_type;
 
     auto& machine = this->machine;
     auto& nTriplesPerLoop = this->nTriplesPerLoop;
@@ -736,7 +836,7 @@ void Spdz2kTripleGenerator<W>::sacrificeZ2k(U& MC, PRNG& G)
     auto& outputFile = this->outputFile;
     auto& uncheckedTriples = this->uncheckedTriples;
 
-    vector< Share<T> > maskedAs(nTriplesPerLoop);
+    vector<prep_check_type> maskedAs(nTriplesPerLoop);
     vector<TripleToSacrifice<Share<T>> > maskedTriples(nTriplesPerLoop);
     for (int j = 0; j < nTriplesPerLoop; j++)
     {
@@ -744,16 +844,20 @@ void Spdz2kTripleGenerator<W>::sacrificeZ2k(U& MC, PRNG& G)
         // and first part of [sigma], i.e., t * [c] - [chat] 
         maskedTriples[j].template prepare_sacrifice<W>(uncheckedTriples[j], G);
         maskedAs[j] = maskedTriples[j].a[0];
+        // enough randomness in values
+        MC.set_random_element({});
     }
 
     vector<T> openedAs(nTriplesPerLoop);
     MC.POpen_Begin(openedAs, maskedAs, globalPlayer);
     MC.POpen_End(openedAs, maskedAs, globalPlayer);
 
-    vector<Share<T>> sigmas;
+    vector<prep_check_type> sigmas;
     for (int j = 0; j < nTriplesPerLoop; j++) {
         // compute t * [c] - [chat] - [b] * p
         sigmas.push_back(maskedTriples[j].computeCheckShare(V(openedAs[j])));
+        // enough randomness in values
+        MC.set_random_element({});
     }
     vector<T> open_sigmas;
     

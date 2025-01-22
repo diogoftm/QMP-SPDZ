@@ -27,11 +27,12 @@ void ProcessorBase::open_input_file(int my_num, int thread_num,
 }
 
 void ProcessorBase::setup_redirection(int my_num, int thread_num,
-		OnlineOptions& opts, SwitchableOutput& out)
+		OnlineOptions& opts, SwitchableOutput& out, bool real)
 {
     // only output on party 0 if not interactive
     bool always_stdout = opts.cmd_private_output_file == ".";
     bool output = my_num == 0 or opts.interactive or always_stdout;
+    output &= real;
     out.activate(output);
 
     if (not (opts.cmd_private_output_file.empty() or always_stdout))

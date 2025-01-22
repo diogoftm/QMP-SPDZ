@@ -49,6 +49,7 @@ template<class T> void generate_prime_setup(string, int, int);
  * ``L`` is the number of 64-bit limbs, that is,
  * the prime has to have bit length in `[64*L-63, 64*L]`.
  * See ``gfpvar_`` for a more flexible alternative.
+ * Convert to ``bigint`` to access the canonical integer representation.
  */
 template<int X, int L>
 class gfp_ : public ValueInterface
@@ -59,6 +60,8 @@ class gfp_ : public ValueInterface
   static Zp_Data ZpD;
 
   static thread_local vector<gfp_> powers;
+
+  static gfp_ two;
 
   public:
 
@@ -104,6 +107,7 @@ class gfp_ : public ValueInterface
   static void write_setup(string dir)
     { write_online_setup(dir, pr()); }
   static void check_setup(string dir);
+  static string fake_opts() { return " -P " + to_string(pr()); }
 
   /**
    * Get the prime modulus
@@ -161,6 +165,7 @@ class gfp_ : public ValueInterface
   gfp_(const mpz_class& x) { to_modp(a, x, ZpD); }
   gfp_(int x) : gfp_(long(x)) {}
   gfp_(long x);
+  gfp_(long long x) : gfp_(long(x)) {}
   gfp_(word x) : gfp_(bigint::tmp = x) {}
   template<class T>
   gfp_(IntBase<T> x) : gfp_(x.get()) {}
@@ -184,12 +189,8 @@ class gfp_ : public ValueInterface
   bool operator!=(const gfp_& y) const { return !equal(y); }
 
   // x+y
-  void add(octetStream& os)
-    { add(os.consume(size())); }
   void add(const gfp_& x,const gfp_& y)
     { ZpD.Add<L>(a.x,x.a.x,y.a.x); }
-  void add(void* x)
-    { ZpD.Add<L>(a.x,a.x,(mp_limb_t*)x); }
   void sub(const gfp_& x,const gfp_& y)
     { ZpD.Sub<L>(a.x,x.a.x,y.a.x); }
   // = x * y
@@ -228,18 +229,25 @@ class gfp_ : public ValueInterface
   // faster randomization, see implementation for explanation
   void almost_randomize(PRNG& G);
 
-  void output(ostream& s,bool human) const
-    { a.output(s,ZpD,human); }
+  /**
+   * Output.
+   * @param s output stream
+   * @param human human-readable or binary
+   * @param signed_ signed representation (range `[-p/2,p/2]` instead of `[0,p]`)
+   */
+  void output(ostream& s, bool human, bool signed_ = false) const
+    { a.output(s,ZpD, human, signed_); }
   void input(istream& s,bool human)
     { a.input(s,ZpD,human); }
 
   /**
-   * Human-readable output in the range `[-p/2, p/2]`.
+   * Human-readable output in the range `[0, p]`.
    * @param s output stream
    * @param x value
    */
   friend ostream& operator<<(ostream& s,const gfp_& x)
-    { x.output(s,true);
+    {
+      x.output(s, true, false);
       return s;
     }
   /**
@@ -303,6 +311,11 @@ typedef gfp_<1, GFP_MOD_SZ> gfp1;
 
 template<int X, int L>
 Zp_Data gfp_<X, L>::ZpD;
+template<int X, int L>
+gfp_<X, L> gfp_<X, L>::two;
+
+template<int X, int L>
+const true_type gfp_<X, L>::prime_field;
 
 template<int X, int L>
 thread_local vector<gfp_<X, L>> gfp_<X, L>::powers;
@@ -312,6 +325,10 @@ gfp_<X, L>::gfp_(long x)
 {
   if (x == 0)
     assign_zero();
+  else if (x == 1)
+    assign_one();
+  else if (x == 2)
+    *this = two;
   else
     *this = bigint::tmp = x;
 }
@@ -345,7 +362,7 @@ void to_signed_bigint(bigint& ans, const T& x)
 {
     ans = x;
     // get sign and abs(x)
-    if (ans > T::get_ZpD().pr_half)
+    if (ans >= T::get_ZpD().pr_half)
         ans -= T::pr();
 }
 

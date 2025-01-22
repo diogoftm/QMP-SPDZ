@@ -25,7 +25,7 @@ void check_triples(int n_players, string type_char = "")
         ss << "-P" << i;
         inputFiles[i].open(ss.str().c_str());
         cout << "Opening file " << ss.str() << endl;
-        octetStream tmp, tmp2 = file_signature<T>();
+        octetStream tmp, tmp2 = file_signature<SemiShare<T>>();
         tmp.input(inputFiles[i]);
         assert(tmp == tmp2);
     }

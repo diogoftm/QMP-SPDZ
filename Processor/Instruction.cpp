@@ -6,14 +6,17 @@
 #include "Instruction.h"
 #include "instructions.h"
 #include "Processor.h"
+#include "Memory.h"
 #include "Math/gf2n.h"
 #include "GC/instructions.h"
+
+#include "Memory.hpp"
 
 #include <iomanip>
 
 template<class cgf2n>
-void Instruction::execute_clear_gf2n(vector<cgf2n>& registers,
-        vector<cgf2n>& memory, ArithmeticProcessor& Proc) const
+void Instruction::execute_clear_gf2n(StackedVector<cgf2n>& registers,
+        MemoryPart<cgf2n>& memory, ArithmeticProcessor& Proc) const
 {
     auto& C2 = registers;
     auto& M2C = memory;
@@ -27,7 +30,7 @@ void Instruction::execute_clear_gf2n(vector<cgf2n>& registers,
 }
 
 template<class cgf2n>
-void Instruction::gbitdec(vector<cgf2n>& registers) const
+void Instruction::gbitdec(StackedVector<cgf2n>& registers) const
 {
     for (int j = 0; j < size; j++)
     {
@@ -41,7 +44,7 @@ void Instruction::gbitdec(vector<cgf2n>& registers) const
 }
 
 template<class cgf2n>
-void Instruction::gbitcom(vector<cgf2n>& registers) const
+void Instruction::gbitcom(StackedVector<cgf2n>& registers) const
 {
     for (int j = 0; j < size; j++)
     {
@@ -54,7 +57,7 @@ void Instruction::gbitcom(vector<cgf2n>& registers) const
     }
 }
 
-void Instruction::execute_regint(ArithmeticProcessor& Proc, vector<Integer>& Mi) const
+void Instruction::execute_regint(ArithmeticProcessor& Proc, MemoryPart<Integer>& Mi) const
 {
     (void) Mi;
     auto& Ci = Proc.get_Ci();
@@ -90,19 +93,27 @@ void Instruction::bitdecint(ArithmeticProcessor& Proc) const
     }
 }
 
-ostream& operator<<(ostream& s, const Instruction& instr)
+string BaseInstruction::get_name() const
 {
-    switch (instr.get_opcode())
+    switch (get_opcode())
     {
 #define X(NAME, PRE, CODE) \
-    case NAME: s << #NAME; break;
+    case NAME: return #NAME;
     ALL_INSTRUCTIONS
 #undef X
 #define X(NAME, CODE) \
-    case NAME: s << #NAME; break;
+    case NAME: return #NAME;
     COMBI_INSTRUCTIONS
+    default:
+        stringstream ss;
+        ss << hex << get_opcode();
+        return ss.str();
     }
+}
 
+ostream& operator<<(ostream& s, const Instruction& instr)
+{
+    s << instr.get_name();
     s << " size=" << instr.get_size();
     s << " n=" << instr.get_n();
     s << " r=(";
@@ -121,7 +132,7 @@ ostream& operator<<(ostream& s, const Instruction& instr)
     return s;
 }
 
-template void Instruction::execute_clear_gf2n(vector<gf2n_short>& registers,
-        vector<gf2n_short>& memory, ArithmeticProcessor& Proc) const;
-template void Instruction::execute_clear_gf2n(vector<gf2n_long>& registers,
-        vector<gf2n_long>& memory, ArithmeticProcessor& Proc) const;
+template void Instruction::execute_clear_gf2n(StackedVector<gf2n_short>& registers,
+        MemoryPart<gf2n_short>& memory, ArithmeticProcessor& Proc) const;
+template void Instruction::execute_clear_gf2n(StackedVector<gf2n_long>& registers,
+        MemoryPart<gf2n_long>& memory, ArithmeticProcessor& Proc) const;

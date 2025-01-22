@@ -9,6 +9,7 @@
 
 #include "GC/Processor.hpp"
 #include "GC/ShareSecret.hpp"
+#include "GC/ThreadMaster.hpp"
 #include "Processor/Input.hpp"
 
 namespace GC
@@ -23,14 +24,14 @@ void FakeSecret::load_clear(int n, const Integer& x)
 	*this = x;
 }
 
-void FakeSecret::bitcom(Memory<FakeSecret>& S, const vector<int>& regs)
+void FakeSecret::bitcom(StackedVector<FakeSecret>& S, const vector<int>& regs)
 {
     *this = 0;
     for (unsigned int i = 0; i < regs.size(); i++)
         *this ^= (S[regs[i]] << i);
 }
 
-void FakeSecret::bitdec(Memory<FakeSecret>& S, const vector<int>& regs) const
+void FakeSecret::bitdec(StackedVector<FakeSecret>& S, const vector<int>& regs) const
 {
     for (unsigned int i = 0; i < regs.size(); i++)
         S[regs[i]] = (*this >> i) & 1;
@@ -93,7 +94,8 @@ void FakeSecret::inputbvec(Processor<FakeSecret>& processor,
 {
     Input input;
     input.reset_all(*ShareThread<FakeSecret>::s().P);
-    processor.inputbvec(input, input_processor, args, 0);
+    processor.inputbvec(input, input_processor, args,
+            *ShareThread<FakeSecret>::s().P);
 }
 
 void FakeSecret::and_(int n, const FakeSecret& x, const FakeSecret& y,
@@ -118,6 +120,11 @@ void FakeSecret::other_input(Input&, int, int)
 void FakeSecret::finalize_input(Input& inputter, int from, int n_bits)
 {
     *this = inputter.finalize(from, n_bits);
+}
+
+void FakeSecret::run_tapes(const vector<int>& args)
+{
+    Thread<FakeSecret>::s().master.machine.run_tapes(args);
 }
 
 } /* namespace GC */

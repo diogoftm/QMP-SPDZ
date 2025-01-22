@@ -78,6 +78,11 @@ void OTCorrelator<U>::correlate(int start, int slice,
     Slice<U> t1Slice(t1, start, slice);
     Slice<U> uSlice(u, start, slice);
 
+    if (OnlineOptions::singleton.has_option("verbose_correlate"))
+        fprintf(stderr, "correlate %d matrices of size %d*%d, %u bits\n", slice,
+                int(U::PartType::n_rows()), int(U::PartType::n_columns()),
+                newReceiverInput.size());
+
     // create correlation
     if (ot_role & RECEIVER)
     {
@@ -188,7 +193,7 @@ template <class T>
 void OTCorrelator<U>::reduce_squares(unsigned int nTriples, vector<T>& output, int start)
 {
     if (receiverOutputMatrix.squares.size() < nTriples + start)
-        throw invalid_length();
+        throw invalid_length("reduce_squares");
     output.resize(nTriples);
     for (unsigned int j = 0; j < nTriples; j++)
     {

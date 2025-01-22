@@ -6,13 +6,15 @@
 #include "Tools/random.h"
 #include "Tools/time-func.h"
 
-#define VERBOSE_BASEOT false
+#include <map>
 
 /*
  * Class for creating and storing base OTs between every pair of parties.
  */
 class OTTripleSetup
 {
+    void run(int i);
+
     BitVector base_receiver_inputs;
     vector<BaseOT*> baseOTs;
 
@@ -22,9 +24,28 @@ class OTTripleSetup
     int nbase;
 
 public:
+    class SetupJob
+    {
+        OTTripleSetup& setup;
+        int i;
+
+    public:
+        pthread_t thread;
+
+        SetupJob(OTTripleSetup& setup, int i) :
+                setup(setup), i(i), thread(0)
+        {
+        }
+
+        void run()
+        {
+            setup.run(i);
+        }
+    };
+
     map<string,Timer> timers;
-    vector<OffsetPlayer*> players;
-    vector< vector< vector<BitVector> > > baseSenderInputs;
+    vector<TwoPartyPlayer*> players;
+    vector< vector< array<BitVector, 2> > > baseSenderInputs;
     vector< vector<BitVector> > baseReceiverOutputs;
 
     int get_nparties() const { return nparties; }
@@ -56,25 +77,25 @@ public:
             else
                 other_player = i;
 
-            players.push_back(new OffsetPlayer(N, N.get_offset(other_player)));
+            players.push_back(new VirtualTwoPartyPlayer(N, other_player));
 
             // sets up a pair of base OTs, playing both roles
             if (real_OTs)
             {
-                baseOTs[i] = new BaseOT(nbase, 128, players[i]);
+                baseOTs[i] = new BaseOT(nbase, players[i]);
             }
             else
             {
-                baseOTs[i] = new FakeOT(nbase, 128, players[i]);
+                baseOTs[i] = new FakeOT(nbase, players[i]);
             }
         }
 
-        setup();
+        setup(N);
         close_connections();
     }
 
     // run the Base OTs
-    void setup();
+    void setup(Player& N);
     // close down the sockets
     void close_connections();
 
@@ -84,5 +105,23 @@ public:
     OTTripleSetup get_fresh();
 };
 
+class OnDemandOTTripleSetup
+{
+    map<Player*, OTTripleSetup*> setups;
+
+public:
+    ~OnDemandOTTripleSetup()
+    {
+        for (auto& setup : setups)
+            delete setup.second;
+    }
+
+    OTTripleSetup get_fresh(Player& P)
+    {
+        if (setups.find(&P) == setups.end())
+            setups[&P] = new OTTripleSetup(P, true);
+        return setups[&P]->get_fresh();
+    }
+};
 
 #endif

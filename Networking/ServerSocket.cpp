@@ -8,6 +8,7 @@
 #include "Tools/Exceptions.h"
 #include "Tools/time-func.h"
 #include "Tools/octetStream.h"
+#include "Processor/OnlineOptions.h"
 
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
@@ -60,10 +61,9 @@ ServerSocket::ServerSocket(int Portnum) : portnum(Portnum), thread(0)
               << "), trying again in a second ..." << endl;
           sleep(1);
         }
-#ifdef DEBUG_NETWORKING
       else
-        { cerr << "ServerSocket is bound on port " << Portnum << endl; }
-#endif
+        if (OnlineOptions::singleton.has_option("debug_networking"))
+           cerr << "ServerSocket is bound on port " << Portnum << endl;
     }
   if (fl<0) { error("set_up_socket:bind");  }
 
@@ -121,11 +121,12 @@ void ServerSocket::wait_for_client_id(int socket, struct sockaddr dest)
     }
   catch (closed_connection&)
     {
-#ifdef DEBUG_NETWORKING
-      auto& conn = *(sockaddr_in*) &dest;
-      fprintf(stderr, "client on %s:%d left without identification\n",
-          inet_ntoa(conn.sin_addr), ntohs(conn.sin_port));
-#endif
+      if (OnlineOptions::singleton.has_option("debug_networking"))
+        {
+          auto& conn = *(sockaddr_in*) &dest;
+          fprintf(stderr, "client on %s:%d left without identification\n",
+              inet_ntoa(conn.sin_addr), ntohs(conn.sin_port));
+        }
     }
 }
 
@@ -139,8 +140,24 @@ void ServerSocket::accept_clients()
 #ifdef DEBUG_NETWORKING
       fprintf(stderr, "Accepting...\n");
 #endif
-      int consocket = accept(main_socket, (struct sockaddr *)&dest, (socklen_t*) &socksize);
+      int consocket;
+      for (int i = 0; i < 1000; i++)
+      {
+        consocket = accept(main_socket, (struct sockaddr*) &dest,
+          (socklen_t*) &socksize);
+        if (consocket < 0)
+          usleep(min(1 << i, 1000));
+        else
+          break;
+      }
       if (consocket<0) { error("set_up_socket:accept"); }
+
+#ifdef __APPLE__
+      int flags = fcntl(consocket, F_GETFL, 0);
+      int fl = fcntl(consocket, F_SETFL, O_NONBLOCK |  flags);
+      if (fl < 0)
+          error("set non-blocking on server");
+#endif
 
       octetStream client_id;
       char buf[1];
@@ -160,13 +177,6 @@ void ServerSocket::accept_clients()
           auto job = (new ServerJob(*this, consocket, dest));
           pthread_create(&job->thread, 0, ServerJob::run, job);
         }
-
-#ifdef __APPLE__
-      int flags = fcntl(consocket, F_GETFL, 0);
-      int fl = fcntl(consocket, F_SETFL, O_NONBLOCK |  flags);
-      if (fl < 0)
-          error("set non-blocking");
-#endif
     }
 }
 
@@ -195,8 +205,10 @@ int ServerSocket::get_connection_socket(const string& id)
 
   while (clients.find(id) == clients.end())
   {
-      if (data_signal.wait(60) == ETIMEDOUT)
-          throw runtime_error("No client after one minute");
+      if (data_signal.wait(CONNECTION_TIMEOUT) == ETIMEDOUT)
+          exit_error("Timed out waiting for peer. See "
+                  "https://mp-spdz.readthedocs.io/en/latest/networking.html "
+                  "for details on networking.");
   }
 
   int client_socket = clients[id];
@@ -219,7 +231,7 @@ void AnonymousServerSocket::init()
 void AnonymousServerSocket::process_client(const string& client_id)
 {
   if (clients.find(client_id) != clients.end())
-    close_client_socket(clients[client_id]);
+    exit_error("client " + client_id + " already connected");
   client_connection_queue.push(client_id);
 }
 
@@ -227,9 +239,14 @@ int AnonymousServerSocket::get_connection_socket(string& client_id)
 {
   data_signal.lock();
 
-  //while (clients.find(next_client_id) == clients.end())
   while (client_connection_queue.empty())
-      data_signal.wait();
+  {
+      int res = data_signal.wait(CONNECTION_TIMEOUT);
+      if (res == ETIMEDOUT)
+          exit_error("timed out while waiting for client");
+      else if (res)
+          throw runtime_error("waiting error");
+  }
 
   client_id = client_connection_queue.front();
   client_connection_queue.pop();

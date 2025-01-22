@@ -11,11 +11,13 @@
 #include "BMR/prf.h"
 #include "BMR/common.h"
 #include "GC/ArgTuples.h"
+#include "Tools/CheckVector.h"
 
 #include "GC/Processor.hpp"
 #include "GC/Secret.hpp"
 #include "GC/Thread.hpp"
 #include "GC/ShareSecret.hpp"
+#include "GC/ThreadMaster.hpp"
 #include "YaoCommon.hpp"
 
 void YaoEvalWire::random()
@@ -77,7 +79,7 @@ void YaoEvalWire::and_singlethread(GC::Processor<GC::Secret<YaoEvalWire> >& proc
 	party.counter += counter - party.get_gate_id();
 }
 
-void YaoEvalWire::and_(GC::Memory<GC::Secret<YaoEvalWire> >& S,
+void YaoEvalWire::and_(StackedVector<GC::Secret<YaoEvalWire> >& S,
 		const vector<int>& args, size_t start, size_t end, size_t,
 		YaoGate* gates, long& gate_id, PRNG&, map<string, Timer>&,
 		bool repeat, YaoEvaluator& evaluator)
@@ -176,7 +178,7 @@ void YaoEvalWire::inputbvec(GC::Processor<GC::Secret<YaoEvalWire> >& processor,
 {
     YaoEvalInput inputter;
     processor.inputbvec(inputter, input_processor, args,
-            inputter.evaluator.P->my_num());
+            *inputter.evaluator.P);
     return;
 }
 
@@ -250,10 +252,18 @@ void YaoEvalWire::convcbit2s(GC::Processor<whole_type>& processor,
 	for (int i = 0; i < DIV_CEIL(instruction.get_n(), unit); i++)
 	{
 		auto& dest = processor.S[instruction.get_r(0) + i];
-		dest.resize_regs(min(unsigned(unit), instruction.get_n() - i * unit));
+		dest.resize_regs(min(size_t(unit), instruction.get_n() - i * unit));
 		for (auto& reg : dest.get_regs())
 			reg.set(0);
 	}
+}
+
+void YaoEvalWire::run_tapes(const vector<int>& args)
+{
+	auto& party = YaoEvaluator::s();
+	party.master.machine.run_tapes(args);
+	if (party.continuous())
+		party.untaint();
 }
 
 template void YaoEvalWire::and_<false>(

@@ -236,8 +236,8 @@ void BaseOT::exec_base(int my_num, int other_player, string my_ip, string other_
 
             os1[0].store_bytes(v_char[0], sizeof(v_char[0])); // send the randomly generated chars to the receiver
             os2[0].store_bytes(v_char[1], sizeof(v_char[1]));
-
-            for (j = 0; j < 12; j++) // store the generated chars in long long int format
+            
+            for (j = 0; j < 17; j++) // store the generated chars in long long int format
             {
                 v_sender[0][j] = ((unsigned long long int)(v_char[0][8 * j]) << 56) | ((unsigned long long int)(v_char[0][8 * j + 1]) << 48) | ((unsigned long long int)(v_char[0][8 * j + 2]) << 40) | ((unsigned long long int)(v_char[0][8 * j + 3]) << 32) | ((unsigned long long int)(v_char[0][8 * j + 4]) << 24) | ((unsigned long long int)v_char[0][8 * j + 5] << 16) | ((unsigned long long int)v_char[0][8 * j + 6] << 8) | (unsigned long long int)v_char[0][8 * j + 7];
                 v_sender[1][j] = ((unsigned long long int)v_char[1][8 * j] << 56) | ((unsigned long long int)v_char[1][8 * j + 1] << 48) | ((unsigned long long int)v_char[1][8 * j + 2] << 40) | ((unsigned long long int)v_char[1][8 * j + 3] << 32) | ((unsigned long long int)v_char[1][8 * j + 4] << 24) | ((unsigned long long int)v_char[1][8 * j + 5] << 16) | ((unsigned long long int)v_char[1][8 * j + 6] << 8) | (unsigned long long int)v_char[1][8 * j + 7];
@@ -245,14 +245,14 @@ void BaseOT::exec_base(int my_num, int other_player, string my_ip, string other_
 
             sender_output(&qsender, v_sender[0], v_sender[1], sender_indexlist[0], sender_indexlist[1], sender_out); // generate sender output
 
-            for (j = 0; j < KEY_LENGTH / 64; j++) // store the sender output in the BaseOT object
+            for (j = 0; j < 4; j++) // store the sender output in the BaseOT object
             {
                 sender_inputs[i][0].set_byte(3 + 4 * j, sender_out[0][j] & 0xFF);
                 sender_inputs[i][0].set_byte(2 + 4 * j, (sender_out[0][j] >> 8) & 0xFF);
                 sender_inputs[i][0].set_byte(1 + 4 * j, (sender_out[0][j] >> 16) & 0xFF);
                 sender_inputs[i][0].set_byte(0 + 4 * j, (sender_out[0][j] >> 24) & 0xFF);
 
-                sender_inputs[i][1].set_byte(3 + 4 * j, (sender_out[1][j]) & 0xFF);
+                sender_inputs[i][1].set_byte(3 + 4 * j, sender_out[1][j] & 0xFF);
                 sender_inputs[i][1].set_byte(2 + 4 * j, (sender_out[1][j] >> 8) & 0xFF);
                 sender_inputs[i][1].set_byte(1 + 4 * j, (sender_out[1][j] >> 16) & 0xFF);
                 sender_inputs[i][1].set_byte(0 + 4 * j, (sender_out[1][j] >> 24) & 0xFF);
@@ -275,9 +275,9 @@ void BaseOT::exec_base(int my_num, int other_player, string my_ip, string other_
 
             receiver_output(&qreceiver, u_receiver[receiver_inputs[i].get()], receiver_out); // generate receiver output
 
-            for (j = 0; j < KEY_LENGTH / 64; j++) // store the receiver output in the BaseOT object
+            for (j = 0; j < 4; j++) // store the receiver output in the BaseOT object
             {
-                receiver_outputs[i].set_byte(3 + 4 * j, (receiver_out[j]) & 0xFF);
+                receiver_outputs[i].set_byte(3 + 4 * j, receiver_out[j] & 0xFF);
                 receiver_outputs[i].set_byte(2 + 4 * j, (receiver_out[j] >> 8) & 0xFF);
                 receiver_outputs[i].set_byte(1 + 4 * j, (receiver_out[j] >> 16) & 0xFF);
                 receiver_outputs[i].set_byte(0 + 4 * j, (receiver_out[j] >> 24) & 0xFF);
@@ -287,6 +287,22 @@ void BaseOT::exec_base(int my_num, int other_player, string my_ip, string other_
         os2[0].reset_write_head();
 
         gettimeofday(&computationend_3, NULL);
+
+        #ifdef BASE_OT_DEBUG
+        if (ot_role & SENDER)
+        {
+            printf("%4d-th sender keys:", i+j);
+            for (int k = 0; k < 16; k++) printf("%.2X", sender_inputs[i][0].get_byte(k));
+            printf(" ");
+            for (int k = 0; k < 16; k++) printf("%.2X", sender_inputs[i][1].get_byte(k));
+            printf(" ");
+            for (int k = 0; k < 16; k++) printf("%.2X", receiver_outputs[i].get_byte(k));
+            printf("\n");
+        }
+
+        printf("\n");
+        #endif
+        
     }
 
     set_seeds();
@@ -370,7 +386,17 @@ void BaseOT::check()
     }
 }
 
-void FakeOT::exec_base(bool new_receiver_inputs)
+void BaseOT::allocate()
+{
+    for (int i = 0; i < nOT; i++)
+    {
+        sender_inputs[i][0] = BitVector(8 * AES_BLK_SIZE);
+        sender_inputs[i][1] = BitVector(8 * AES_BLK_SIZE);
+        receiver_outputs[i] = BitVector(8 * AES_BLK_SIZE);
+    }
+}
+
+void FakeOT::fake_exec_base(bool new_receiver_inputs)
 {
     insecure("base OTs");
     PRNG G;
@@ -378,11 +404,13 @@ void FakeOT::exec_base(bool new_receiver_inputs)
     vector<octetStream> os(2);
     vector<BitVector> bv(2, 128);
 
+    allocate();
+
     if ((ot_role & RECEIVER) && new_receiver_inputs)
     {
         for (int i = 0; i < nOT; i++)
             // Generate my receiver inputs
-            receiver_inputs[i] = G.get_uchar() & 1;
+            receiver_inputs[i] = G.get_uchar()&1;
     }
 
     if (ot_role & SENDER)

@@ -17,6 +17,7 @@ right order.
 
 import itertools
 import operator
+import math
 from . import tools
 from random import randint
 from functools import reduce
@@ -69,7 +70,7 @@ class ldmc(base.DirectMemoryInstruction, base.ReadMemoryInstruction):
     """
     __slots__ = []
     code = base.opcodes['LDMC']
-    arg_format = ['cw','int']
+    arg_format = ['cw','long']
 
 @base.gf2n
 @base.vectorize
@@ -84,7 +85,7 @@ class ldms(base.DirectMemoryInstruction, base.ReadMemoryInstruction):
     """
     __slots__ = []
     code = base.opcodes['LDMS']
-    arg_format = ['sw','int']
+    arg_format = ['sw','long']
 
 @base.gf2n
 @base.vectorize
@@ -99,7 +100,7 @@ class stmc(base.DirectMemoryWriteInstruction):
     """
     __slots__ = []
     code = base.opcodes['STMC']
-    arg_format = ['c','int']
+    arg_format = ['c','long']
 
 @base.gf2n
 @base.vectorize
@@ -114,7 +115,7 @@ class stms(base.DirectMemoryWriteInstruction):
     """
     __slots__ = []
     code = base.opcodes['STMS']
-    arg_format = ['s','int']
+    arg_format = ['s','long']
 
 @base.vectorize
 class ldmint(base.DirectMemoryInstruction, base.ReadMemoryInstruction):
@@ -128,7 +129,7 @@ class ldmint(base.DirectMemoryInstruction, base.ReadMemoryInstruction):
     """
     __slots__ = []
     code = base.opcodes['LDMINT']
-    arg_format = ['ciw','int']
+    arg_format = ['ciw','long']
 
 @base.vectorize
 class stmint(base.DirectMemoryWriteInstruction):
@@ -142,7 +143,7 @@ class stmint(base.DirectMemoryWriteInstruction):
     """
     __slots__ = []
     code = base.opcodes['STMINT']
-    arg_format = ['ci','int']
+    arg_format = ['ci','long']
 
 @base.vectorize
 class ldmci(base.ReadMemoryInstruction, base.IndirectMemoryInstruction):
@@ -294,6 +295,7 @@ class movint(base.Instruction):
 @base.vectorize
 class pushint(base.StackInstruction):
     """ Pushes clear integer register to the thread-local stack.
+    Considered obsolete.
 
     :param: source (regint)
     """
@@ -303,6 +305,7 @@ class pushint(base.StackInstruction):
 @base.vectorize
 class popint(base.StackInstruction):
     """ Pops from the thread-local stack to clear integer register.
+    Considered obsolete.
 
     :param: destination (regint)
     """
@@ -342,6 +345,17 @@ class starg(base.Instruction):
     code = base.opcodes['STARG']
     arg_format = ['ci']
 
+@base.vectorize
+class cmdlinearg(base.Instruction):
+    """ Load command-line argument.
+
+    :param: dest (regint)
+    :param: index (regint)
+
+    """
+    code = base.opcodes['CMDLINEARG']
+    arg_format = ['ciw','ci']
+
 @base.gf2n
 class reqbl(base.Instruction):
     """ Requirement on computation modulus. Minimal bit length of prime if
@@ -353,7 +367,17 @@ class reqbl(base.Instruction):
     code = base.opcodes['REQBL']
     arg_format = ['int']
 
+class active(base.Instruction):
+    """ Indicate whether program is compatible with malicious-security
+    protocols.
+
+    :param: 0 for no, 1 for yes
+    """
+    code = base.opcodes['ACTIVE']
+    arg_format = ['int']
+
 class time(base.IOInstruction):
+
     """ Output time since start of computation. """
     code = base.opcodes['TIME']
     arg_format = []
@@ -375,7 +399,7 @@ class stop(base.Instruction):
     arg_format = ['i']
 
 class use(base.Instruction):
-    """ Offline data usage. Necessary to avoid reusage while using
+    r""" Offline data usage. Necessary to avoid reusage while using
     preprocessing from files. Also used to multithreading for expensive
     preprocessing.
 
@@ -384,10 +408,18 @@ class use(base.Instruction):
     :param: number (int, -1 for unknown)
     """
     code = base.opcodes['USE']
-    arg_format = ['int','int','int']
+    arg_format = ['int','int','long']
+
+    @classmethod
+    def get_usage(cls, args):
+        from .program import field_types, data_types
+        from .util import find_in_dict
+        return {(find_in_dict(field_types, args[0].i),
+                 find_in_dict(data_types, args[1].i)):
+                 args[2].i}
 
 class use_inp(base.Instruction):
-    """ Input usage.  Necessary to avoid reusage while using
+    r""" Input usage.  Necessary to avoid reusage while using
     preprocessing from files.
 
     :param: domain (0: integer, 1: :math:`\mathrm{GF}(2^n)`, 2: bit)
@@ -395,7 +427,14 @@ class use_inp(base.Instruction):
     :param: number (int, -1 for unknown)
     """
     code = base.opcodes['USE_INP']
-    arg_format = ['int','int','int']
+    arg_format = ['int','int','long']
+
+    @classmethod
+    def get_usage(cls, args):
+        from .program import field_types, data_types
+        from .util import find_in_dict
+        return {(find_in_dict(field_types, args[0].i), 'input', args[1].i):
+                 args[2].i}
 
 class use_edabit(base.Instruction):
     """ edaBit usage. Necessary to avoid reusage while using
@@ -407,7 +446,11 @@ class use_edabit(base.Instruction):
     :param: number (int, -1 for unknown)
     """
     code = base.opcodes['USE_EDABIT']
-    arg_format = ['int','int','int']
+    arg_format = ['int','int','long']
+
+    @classmethod
+    def get_usage(cls, args):
+        return {('sedabit' if args[0].i else 'edabit', args[1].i): args[2].i}
 
 class use_matmul(base.Instruction):
     """ Matrix multiplication usage. Used for multithreading of
@@ -419,7 +462,7 @@ class use_matmul(base.Instruction):
     :param: number (int, -1 for unknown)
     """
     code = base.opcodes['USE_MATMUL']
-    arg_format = ['int','int','int','int']
+    arg_format = ['int','int','int','long']
 
     @classmethod
     def get_usage(cls, args):
@@ -445,6 +488,70 @@ class join_tape(base.Instruction):
     code = base.opcodes['JOIN_TAPE']
     arg_format = ['int']
 
+class call_tape(base.DoNotEliminateInstruction):
+    """ Start tape/bytecode file in same thread. Arguments/return values
+    starting from :py:obj:`direction` are optional.
+
+    :param: tape number (int)
+    :param: arg (regint)
+    :param: direction (0 for argument, 1 for return value)
+    :param: register type (see :py:obj:`vm_types`)
+    :param: register size (int)
+    :param: destination register
+    :param: source register
+    :param: (repeat from direction)
+
+    """
+    code = base.opcodes['CALL_TAPE']
+    arg_format = tools.chain(['int', 'ci'],
+                             tools.cycle(['int','int','int','*w','*']))
+
+    @staticmethod
+    def type_check(reg, type_id):
+        assert base.vm_types[reg.reg_type] == type_id
+
+    def __init__(self, *args, **kwargs):
+        super(call_tape, self).__init__(*args, **kwargs)
+        for i in range(2, len(args), 5):
+            for reg in args[i + 3:i + 5]:
+                self.type_check(reg, args[i + 1])
+                assert reg.size == args[i + 2]
+            assert args[i] in (0, 1)
+            assert args[i + 4 - args[i]].program == program.curr_tape
+            assert args[i + 3 + args[i]].program == program.tapes[args[0]]
+
+    def get_def(self):
+        # hide registers from called tape
+        for i in range(2, len(self.args), 5):
+            if self.args[i]:
+                yield self.args[i + 3]
+
+    def get_used(self):
+        # hide registers from called tape
+        yield self.args[1]
+        for i in range(2, len(self.args), 5):
+            if not self.args[i]:
+                yield self.args[i + 4]
+
+    def add_usage(self, req_node):
+        req_node.num += program.tapes[self.args[0]].req_tree.aggregate()
+
+class call_arg(base.DoNotEliminateInstruction, base.VectorInstruction):
+    """ Pseudo instruction for arguments in connection with
+    :py:class:`call_tape`.
+
+    :param: destination (register)
+    :param: register type (see :py:obj:`vm_types`)
+
+    """
+    code = base.opcodes['CALL_ARG']
+    arg_format = ['*w','int']
+
+    def __init__(self, *args, **kwargs):
+        super(call_arg, self).__init__(*args, **kwargs)
+        for i in range(0, len(args), 2):
+            call_tape.type_check(args[i], args[i + 1])
+
 class crash(base.IOInstruction):
     """ Crash runtime if the value in the register is not zero.
 
@@ -468,7 +575,12 @@ class use_prep(base.Instruction):
     :param: number of items to use (int, -1 for unknown)
     """
     code = base.opcodes['USE_PREP']
-    arg_format = ['str','int']
+    arg_format = ['str','long']
+
+    @classmethod
+    def get_usage(cls, args):
+        return {('gf2n' if cls.__name__ == 'guse_prep' else 'modp',
+                 args[0].str): args[1].i}
 
 class nplayers(base.Instruction):
     """ Store number of players in clear integer register.
@@ -588,6 +700,77 @@ class submr(base.SubBase):
     __slots__ = []
     code = base.opcodes['SUBMR']
     arg_format = ['sw','c','s']
+
+@base.vectorize
+class prefixsums(base.Instruction):
+    """ Prefix sum.
+
+    :param: result (sint)
+    :param: input (sint)
+
+    """
+    __slots__ = []
+    code = base.opcodes['PREFIXSUMS']
+    arg_format = ['sw','s']
+
+class picks(base.VectorInstruction):
+    """ Extract part of vector.
+
+    :param: result (sint)
+    :param: input (sint)
+    :param: start offset (int)
+    :param: step
+
+    """
+    __slots__ = []
+    code = base.opcodes['PICKS']
+    arg_format = ['sw','s','int','int']
+
+    def __init__(self, *args):
+        super(picks, self).__init__(*args)
+        assert 0 <= args[2] < len(args[1])
+        assert 0 <= args[2] + args[3] * (len(args[0]) - 1) < len(args[1])
+
+class concats(base.VectorInstruction):
+    """ Concatenate vectors.
+
+    :param: result (sint)
+    :param: start offset (int)
+    :param: input (sint)
+    :param: (repeat from offset)...
+
+    """
+    __slots__ = []
+    code = base.opcodes['CONCATS']
+    arg_format = tools.chain(['sw'], tools.cycle(['int','s']))
+
+    def __init__(self, *args):
+        super(concats, self).__init__(*args)
+        assert len(args) % 2 == 1
+        assert len(args[0]) == sum(args[1::2])
+        for i in range(1, len(args), 2):
+            assert args[i] == len(args[i + 1])
+
+class zips(base.Instruction):
+    """ Zip vectors.
+
+    :param: result (sint)
+    :param: operand (sint)
+    :param: operand (sint)
+
+    """
+    __slots__ = []
+    code = base.opcodes['ZIPS']
+    arg_format = ['sw','s','s']
+    is_vec = lambda self: True
+
+    def __init__(self, *args):
+        super(zips, self).__init__(*args)
+        assert len(args[0]) == len(args[1]) + len(args[2])
+        assert len(args[1]) == len(args[2])
+
+    def get_code(self):
+        return super(zips, self).get_code(len(self.args[1]))
 
 @base.gf2n
 @base.vectorize
@@ -781,30 +964,6 @@ class gbitcom(base.Instruction):
     def has_var_args(self):
         return True
 
-
-###
-### Special GF(2) arithmetic instructions
-###
-
-@base.vectorize
-class gmulbitc(base.MulBase):
-    r""" Clear GF(2^n) by clear GF(2) multiplication """
-    __slots__ = []
-    code = base.opcodes['GMULBITC']
-    arg_format = ['cgw','cg','cg']
-
-    def is_gf2n(self):
-        return True
-
-@base.vectorize
-class gmulbitm(base.MulBase):
-    r""" Secret GF(2^n) by clear GF(2) multiplication """
-    __slots__ = []
-    code = base.opcodes['GMULBITM']
-    arg_format = ['sgw','sg','cg']
-
-    def is_gf2n(self):
-        return True
 
 ###
 ### Arithmetic with immediate values
@@ -1050,6 +1209,7 @@ class shrci(base.ClearShiftInstruction):
     code = base.opcodes['SHRCI']
     op = '__rshift__'
 
+@base.gf2n
 @base.vectorize
 class shrsi(base.ClearShiftInstruction):
     """ Bitwise right shift of secret register (vector) by (constant)
@@ -1188,7 +1348,7 @@ class randoms(base.Instruction):
     field_type = 'modp'
 
 @base.vectorize
-class randomfulls(base.Instruction):
+class randomfulls(base.DataInstruction):
     """ Store share(s) of a fresh secret random element in secret
     register (vectors).
 
@@ -1198,6 +1358,10 @@ class randomfulls(base.Instruction):
     code = base.opcodes['RANDOMFULLS']
     arg_format = ['sw']
     field_type = 'modp'
+    data_type = 'random'
+
+    def get_repeat(self):
+        return len(self.args)
 
 @base.gf2n
 @base.vectorize
@@ -1403,7 +1567,6 @@ class inputmixed(inputmixed_base):
         for i, t in self.bases(iter(self.args)):
             yield self.args[i + sum(self.types[t]) + 1]
 
-@base.vectorize
 class inputmixedreg(inputmixed_base):
     """ Store private input in secret registers (vectors). The input is
     read as integer or floating-point number and the latter is then
@@ -1423,6 +1586,21 @@ class inputmixedreg(inputmixed_base):
     """
     code = base.opcodes['INPUTMIXEDREG']
     player_arg_type = 'ci'
+    is_vec = lambda self: True
+
+    def __init__(self, *args):
+        inputmixed_base.__init__(self, *args)
+        for i, t in self.bases(iter(self.args)):
+            n = self.types[t][0]
+            for j in range(i + 1, i + 1 + n):
+                assert args[j].size == self.get_size()
+
+    def get_size(self):
+        return self.args[1].size
+
+    def get_code(self):
+        return inputmixed_base.get_code(
+            self, self.get_size() if self.get_size() > 1 else 0)
 
     def add_usage(self, req_node):
         # player 0 as proxy
@@ -1481,8 +1659,8 @@ class inputpersonal(personal_base):
     code = base.opcodes['INPUTPERSONAL']
     arg_format = tools.cycle(['int','p','sw','c'])
 
-class privateoutput(personal_base):
-    """ Private input from cint.
+class privateoutput(personal_base, base.DataInstruction):
+    """ Private output to cint.
 
     :param: vector size (int)
     :param: player (int)
@@ -1493,6 +1671,14 @@ class privateoutput(personal_base):
     __slots__ = []
     code = base.opcodes['PRIVATEOUTPUT']
     arg_format = tools.cycle(['int','p','cw','s'])
+    data_type = 'open'
+
+    def add_usage(self, req_node):
+        personal_base.add_usage(self, req_node)
+        base.DataInstruction.add_usage(self, req_node)
+
+    def get_repeat(self):
+        return sum(self.args[::4])
 
 class sendpersonal(base.Instruction, base.Mergeable):
     """ Private input from cint.
@@ -1540,8 +1726,19 @@ class print_reg_plain(base.IOInstruction):
     code = base.opcodes['PRINTREGPLAIN']
     arg_format = ['c']
 
+@base.gf2n
+class print_reg_plains(base.IOInstruction):
+    """ Output secret register.
+
+    :param: source (sint)
+
+    """
+    __slots__ = []
+    code = base.opcodes['PRINTREGPLAINS']
+    arg_format = ['s']
+
 class cond_print_plain(base.IOInstruction):
-    """ Conditionally output clear register (with precision).
+    r""" Conditionally output clear register (with precision).
     Outputs :math:`x \cdot 2^p` where :math:`p` is the precision.
 
     :param: condition (cint, no output if zero)
@@ -1601,7 +1798,7 @@ class print_char(base.IOInstruction):
     arg_format = ['int']
 
     def __init__(self, ch):
-        super(print_char, self).__init__(ord(ch))
+        super(print_char, self).__init__(ch)
 
 class print_char4(base.IOInstruction):
     """ Output four bytes.
@@ -1705,6 +1902,7 @@ class writesockets(base.IOInstruction):
     from registers into a socket for a specified client id. If the
     protocol uses MACs, the client should be different for every party.
 
+    :param: number of arguments to follow
     :param: client id (regint)
     :param: message type (must be 0)
     :param: vector size (int)
@@ -1769,6 +1967,19 @@ class acceptclientconnection(base.IOInstruction):
     code = base.opcodes['ACCEPTCLIENTCONNECTION']
     arg_format = ['ciw', 'ci']
 
+class initclientconnection(base.IOInstruction):
+    """ Initialize connection.
+
+    :param: client id destination (regint)
+    :param: port number (regint)
+    :param: my client id (regint)
+    :param: hostname (variable string)
+
+    """
+    __slots__ = []
+    code = base.opcodes['INITCLIENTCONNECTION']
+    arg_format = ['ciw', 'ci', 'ci', 'varstr']
+
 class closeclientconnection(base.IOInstruction):
     """ Close connection to client.
 
@@ -1778,7 +1989,7 @@ class closeclientconnection(base.IOInstruction):
     code = base.opcodes['CLOSECLIENTCONNECTION']
     arg_format = ['ci']
 
-class writesharestofile(base.IOInstruction):
+class writesharestofile(base.VectorInstruction, base.IOInstruction):
     """ Write shares to ``Persistence/Transactions-P<playerno>.data``
     (appending at the end).
 
@@ -1791,11 +2002,12 @@ class writesharestofile(base.IOInstruction):
     __slots__ = []
     code = base.opcodes['WRITEFILESHARE']
     arg_format = tools.chain(['ci'], itertools.repeat('s'))
+    vector_index = 1
 
     def has_var_args(self):
         return True
 
-class readsharesfromfile(base.IOInstruction):
+class readsharesfromfile(base.VectorInstruction, base.IOInstruction):
     """ Read shares from ``Persistence/Transactions-P<playerno>.data``.
 
     :param: number of arguments to follow / number of shares plus two (int)
@@ -1807,6 +2019,7 @@ class readsharesfromfile(base.IOInstruction):
     __slots__ = []
     code = base.opcodes['READFILESHARE']
     arg_format = tools.chain(['ci', 'ciw'], itertools.repeat('sw'))
+    vector_index = 2
 
     def has_var_args(self):
         return True
@@ -1843,6 +2056,20 @@ class floatoutput(base.PublicFileIOInstruction):
     __slots__ = []
     code = base.opcodes['FLOATOUTPUT']
     arg_format = ['p','c','c','c','c']
+
+@base.vectorize
+class fixinput(base.PublicFileIOInstruction):
+    """ Binary fixed-point input.
+
+    :param: player (int)
+    :param: destination (cint)
+    :param: exponent (int, for float/double) / byte length (1/8, for integer)
+    :param: input type (0: 64-bit integer, 1: float, 2: double)
+
+    """
+    __slots__ = []
+    code = base.opcodes['FIXINPUT']
+    arg_format = ['p','cw','int','int']
 
 @base.vectorize
 class rand(base.Instruction):
@@ -2116,7 +2343,7 @@ class convint(base.Instruction):
 
 @base.vectorize
 class convmodp(base.Instruction):
-    """ Convert clear integer register (vector) to clear register
+    r""" Convert clear integer register (vector) to clear register
     (vector). If the bit length is zero, the unsigned conversion is
     used, otherwise signed conversion is used. This makes a difference
     when computing modulo a prime :math:`p`. Signed conversion of
@@ -2157,43 +2384,52 @@ class gconvgf2n(base.Instruction):
 # rename 'open' to avoid conflict with built-in open function
 @base.gf2n
 @base.vectorize
-class asm_open(base.VarArgsInstruction):
+class asm_open(base.VarArgsInstruction, base.DataInstruction):
     """ Reveal secret registers (vectors) to clear registers (vectors).
 
-    :param: number of argument to follow (multiple of two)
+    :param: number of argument to follow (odd number)
+    :param: check after opening (0/1)
     :param: destination (cint)
     :param: source (sint)
     :param: (repeat the last two)...
     """
     __slots__ = []
     code = base.opcodes['OPEN']
-    arg_format = tools.cycle(['cw','s'])
+    arg_format = tools.chain(['int'], tools.cycle(['cw','s']))
+    data_type = 'open'
+
+    def get_repeat(self):
+        return (len(self.args) - 1) // 2
+
+    def merge(self, other):
+        self.args[0] |= other.args[0]
+        self.args += other.args[1:]
 
 @base.gf2n
-@base.vectorize
-class muls(base.VarArgsInstruction, base.DataInstruction):
+class muls(base.VarArgsInstruction, base.DataInstruction, base.Ciscable):
     """ (Element-wise) multiplication of secret registers (vectors).
 
-    :param: number of arguments to follow (multiple of three)
+    :param: number of arguments to follow (multiple of four)
+    :param: vector size (int)
     :param: result (sint)
     :param: factor (sint)
     :param: factor (sint)
-    :param: (repeat the last three)...
+    :param: (repeat the last four)...
     """
     __slots__ = []
     code = base.opcodes['MULS']
-    arg_format = tools.cycle(['sw','s','s'])
+    arg_format = tools.cycle(['int','sw','s','s'])
     data_type = 'triple'
+    is_vec = lambda self: True
+
+    def __init__(self, *args, **kwargs):
+        super(muls_class, self).__init__(*args, **kwargs)
+        for i in range(0, len(args), 4):
+            for j in range(3):
+                assert args[i + j + 1].size == args[i]
 
     def get_repeat(self):
-        return len(self.args) // 3
-
-    def merge_id(self):
-        # can merge different sizes
-        # but not if large
-        if self.get_size() is None or self.get_size() > 100:
-            return type(self), self.get_size()
-        return type(self)
+        return sum(self.args[::4])
 
     # def expand(self):
     #     s = [program.curr_block.new_reg('s') for i in range(9)]
@@ -2209,6 +2445,16 @@ class muls(base.VarArgsInstruction, base.DataInstruction):
     #     adds(s[7], s[2], s[5])
     #     adds(s[8], s[7], s[6])
     #     addm(self.args[0], s[8], c[2])
+
+# compatibility
+try:
+    vmuls = muls_class
+    muls_bak = muls
+    muls = lambda *args: muls_bak(args[0].size, *args)
+    vgmuls = gmuls_class = gmuls
+    gmuls = lambda *args: gmuls_class(args[0].size, *args)
+except NameError:
+    pass
 
 @base.gf2n
 class mulrs(base.VarArgsInstruction, base.DataInstruction):
@@ -2279,6 +2525,7 @@ class dotprods(base.VarArgsInstruction, base.DataInstruction,
         yield 'int'
         for i, n in self.bases(args):
             yield 's' + field + 'w'
+            assert n > 2
             for j in range(n - 2):
                 yield 's' + field
             yield 'int'
@@ -2288,8 +2535,8 @@ class dotprods(base.VarArgsInstruction, base.DataInstruction,
         return self.arg_format()
 
     def get_repeat(self):
-        return sum(self.args[i] // 2
-                   for i, n in self.bases(iter(self.args))) * self.get_size()
+        return sum(self.args[i] // 2 - 1
+                   for i, n in self.bases(iter(self.args)))
 
     def get_def(self):
         return [self.args[i + 1] for i, n in self.bases(iter(self.args))]
@@ -2306,7 +2553,7 @@ class matmul_base(base.DataInstruction):
     def get_repeat(self):
         return reduce(operator.mul, self.args[3:6])
 
-class matmuls(matmul_base):
+class matmuls(matmul_base, base.Mergeable):
     """ Secret matrix multiplication from registers. All matrices are
     represented as vectors in row-first order.
 
@@ -2318,9 +2565,13 @@ class matmuls(matmul_base):
     :param: number of columns in second factor and result (int)
     """
     code = base.opcodes['MATMULS']
-    arg_format = ['sw','s','s','int','int','int']
+    arg_format = itertools.cycle(['sw','s','s','int','int','int'])
 
-class matmulsm(matmul_base):
+    def get_repeat(self):
+        return sum(reduce(operator.mul, self.args[i + 3:i + 6])
+                   for i in range(0, len(self.args), 6))
+
+class matmulsm(matmul_base, base.Mergeable):
     """ Secret matrix multiplication reading directly from memory.
 
     :param: result (sint vector in row-first order)
@@ -2330,30 +2581,51 @@ class matmulsm(matmul_base):
     :param: number of columns in first factor and rows in second factor (int)
     :param: number of columns in second factor and result (int)
     :param: rows of first factor to use (regint vector, length as number of rows in first factor)
-    :param: columns of first factor to use (regint vector, length below)
-    :param: rows of second factor to use (regint vector, length below)
-    :param: columns of second factor to use (regint vector, length below)
-    :param: number of columns of first / rows of second factor to use (int)
-    :param: number of columns of second factor to use (int)
+    :param: columns of first factor to use (regint vector, length as number of columns in the first factor)
+    :param: rows of second factor to use (regint vector, length as number of columns in the first factor)
+    :param: columns of second factor to use (regint vector, length as number of columns in the second factor)
+    :param: total number of columns in the first factor, equal to used number of columns when all columns are used (int)
+    :param: total number of columns in the second factor, equal to used number of columns when all columns are used (int)
     """
     code = base.opcodes['MATMULSM']
-    arg_format = ['sw','ci','ci','int','int','int','ci','ci','ci','ci',
-                  'int','int']
+    arg_format = itertools.cycle(['sw','ci','ci','int','int','int','ci','ci','ci','ci',
+                                  'int','int'])
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args,
+                 first_factor_base_addresses=None,
+                 second_factor_base_addresses=None,
+                 indices_values=None,
+                 **kwargs):
         matmul_base.__init__(self, *args, **kwargs)
-        for i in range(2):
-            assert args[6 + i].size == args[3 + i]
-        for i in range(2):
-            assert args[8 + i].size == args[4 + i]
+        for matmul_index in range(len(args) // 12):
+            for i in range(2):
+                assert args[12 * matmul_index + 6 + i].size == args[12 * matmul_index + 3 + i]
+            for i in range(2):
+                assert args[12 * matmul_index + 8 + i].size == args[12 * matmul_index + 4 + i]
+
+        # These are used to reconstruct that accessed memory addresses in the allocator.
+        self.first_factor_base_addresses = first_factor_base_addresses
+        self.second_factor_base_addresses = second_factor_base_addresses
+        self.indices_values = indices_values
+
+        if first_factor_base_addresses is not None:
+            assert len(first_factor_base_addresses) == len(second_factor_base_addresses)
+            if indices_values is not None:
+                assert len(indices_values) == 4 * len(first_factor_base_addresses)
 
     def add_usage(self, req_node):
         super(matmulsm, self).add_usage(req_node)
-        req_node.increment(('matmul', tuple(self.args[3:6])), 1)
+        for i in range(0, len(self.args), 12):
+            req_node.increment(('matmul', (self.args[i + 3], self.args[i + 4], self.args[i + 5])), 1)
 
-class conv2ds(base.DataInstruction):
+    def get_repeat(self):
+        return sum(reduce(operator.mul, self.args[i + 3:i + 6])
+                   for i in range(0, len(self.args), 12))
+
+class conv2ds(base.DataInstruction, base.VarArgsInstruction, base.Mergeable):
     """ Secret 2D convolution.
 
+    :param: number of arguments to follow (int)
     :param: result (sint vector in row-first order)
     :param: inputs (sint vector in row-first order)
     :param: weights (sint vector in row-first order)
@@ -2369,10 +2641,12 @@ class conv2ds(base.DataInstruction):
     :param: padding height (int)
     :param: padding width (int)
     :param: batch size (int)
+    :param: repeat from result...
+
     """
     code = base.opcodes['CONV2DS']
-    arg_format = ['sw','s','s','int','int','int','int','int','int','int','int',
-                  'int','int','int','int']
+    arg_format = itertools.cycle(['sw','s','s','int','int','int','int','int',
+                                  'int','int','int','int','int','int','int'])
     data_type = 'triple'
     is_vec = lambda self: True
 
@@ -2383,14 +2657,16 @@ class conv2ds(base.DataInstruction):
         assert args[2].size == args[7] * args[8] * args[11]
 
     def get_repeat(self):
-        return self.args[3] * self.args[4] * self.args[7] * self.args[8] * \
-            self.args[11] * self.args[14]
+        args = self.args
+        return sum(args[i+3] * args[i+4] * args[i+7] * args[i+8] * \
+            args[i+11] * args[i+14] for i in range(0, len(args), 15))
 
     def add_usage(self, req_node):
         super(conv2ds, self).add_usage(req_node)
-        args = self.args
-        req_node.increment(('matmul', (1, args[7] * args[8] * args[11],
-                                       args[14] * args[3] * args[4])), 1)
+        for i in range(0, len(self.args), 15):
+            args = self.args[i:i + 15]
+            req_node.increment(('matmul', (1, args[7] * args[8] * args[11],
+                                           args[14] * args[3] * args[4])), 1)
 
 @base.vectorize
 class trunc_pr(base.VarArgsInstruction):
@@ -2405,6 +2681,124 @@ class trunc_pr(base.VarArgsInstruction):
     __slots__ = []
     code = base.opcodes['TRUNC_PR']
     arg_format = tools.cycle(['sw','s','int','int'])
+
+class shuffle_base(base.DataInstruction):
+    n_relevant_parties = 2
+
+    @staticmethod
+    def logn(n):
+        return int(math.ceil(math.log(n, 2)))
+
+    @classmethod
+    def n_swaps(cls, n):
+        logn = cls.logn(n)
+        return logn * 2 ** logn - 2 ** logn + 1
+
+    def add_gen_usage(self, req_node, n):
+        # hack for unknown usage
+        req_node.increment(('bit', 'inverse'), float('inf'))
+        # minimal usage with two relevant parties
+        logn = self.logn(n)
+        n_switches = self.n_swaps(n)
+        for i in range(self.n_relevant_parties):
+            req_node.increment((self.field_type, 'input', i), n_switches)
+        # multiplications for bit check
+        req_node.increment((self.field_type, 'triple'),
+                           n_switches * self.n_relevant_parties)
+
+    def add_apply_usage(self, req_node, n, record_size):
+        req_node.increment(('bit', 'inverse'), float('inf'))
+        logn = self.logn(n)
+        n_switches = self.n_swaps(n) * self.n_relevant_parties
+        if n != 2 ** logn:
+            record_size += 1
+        req_node.increment((self.field_type, 'triple'),
+                           n_switches * record_size)
+
+@base.gf2n
+class secshuffle(base.VectorInstruction, shuffle_base):
+    """ Secure shuffling.
+
+    :param: destination (sint)
+    :param: source (sint)
+    """
+    __slots__ = []
+    code = base.opcodes['SECSHUFFLE']
+    arg_format = ['sw','s','int']
+
+    def __init__(self, *args, **kwargs):
+        super(secshuffle_class, self).__init__(*args, **kwargs)
+        assert len(args[0]) == len(args[1])
+        assert len(args[0]) > args[2]
+
+    def add_usage(self, req_node):
+        self.add_gen_usage(req_node, len(self.args[0]))
+        self.add_apply_usage(req_node, len(self.args[0]), self.args[2])
+
+class gensecshuffle(shuffle_base):
+    """ Generate secure shuffle to bit used several times.
+
+    :param: destination (regint)
+    :param: size (int)
+
+    """
+    __slots__ = []
+    code = base.opcodes['GENSECSHUFFLE']
+    arg_format = ['ciw','int']
+
+    def add_usage(self, req_node):
+        self.add_gen_usage(req_node, self.args[1])
+
+class applyshuffle(base.VectorInstruction, shuffle_base):
+    """ Generate secure shuffle to bit used several times.
+
+    :param: destination (sint)
+    :param: source (sint)
+    :param: number of elements to be treated as one (int)
+    :param: handle (regint)
+    :param: reverse (0/1)
+
+    """
+    __slots__ = []
+    code = base.opcodes['APPLYSHUFFLE']
+    arg_format = ['sw','s','int','ci','int']
+
+    def __init__(self, *args, **kwargs):
+        super(applyshuffle, self).__init__(*args, **kwargs)
+        assert len(args[0]) == len(args[1])
+        assert len(args[0]) > args[2]
+
+    def add_usage(self, req_node):
+        self.add_apply_usage(req_node, len(self.args[0]), self.args[2])
+
+class delshuffle(base.Instruction):
+    """ Delete secure shuffle.
+
+    :param: handle (regint)
+
+    """
+    code = base.opcodes['DELSHUFFLE']
+    arg_format = ['ci']
+
+class inverse_permutation(base.VectorInstruction, shuffle_base):
+    """ Calculate the inverse permutation of a secret permutation.
+
+    :param: destination (sint)
+    :param: source (sint)
+
+    """
+    __slots__ = []
+    code = base.opcodes['INVPERM']
+    arg_format = ['sw', 's']
+
+    def __init__(self, *args, **kwargs):
+        super(inverse_permutation, self).__init__(*args, **kwargs)
+        assert len(args[0]) == len(args[1])
+
+    def add_usage(self, req_node):
+        self.add_gen_usage(req_node, len(self.args[0]))
+        self.add_apply_usage(req_node, len(self.args[0]), 1)
+
 
 class check(base.Instruction):
     """
@@ -2422,18 +2816,16 @@ class check(base.Instruction):
 @base.gf2n
 @base.vectorize
 class sqrs(base.CISC):
-    """ Secret squaring $s_i = s_j \cdot s_j$. """
+    r""" Secret squaring $s_i = s_j \cdot s_j$. """
     __slots__ = []
     arg_format = ['sw', 's']
     
     def expand(self):
-        if program.options.ring:
-            return muls(self.args[0], self.args[1], self.args[1])
         s = [program.curr_block.new_reg('s') for i in range(6)]
         c = [program.curr_block.new_reg('c') for i in range(2)]
         square(s[0], s[1])
         subs(s[2], self.args[1], s[0])
-        asm_open(c[0], s[2])
+        asm_open(False, c[0], s[2])
         mulc(c[1], c[0], c[0])
         mulm(s[3], self.args[1], c[0])
         adds(s[4], s[3], s[3])

@@ -3,9 +3,15 @@
  *
  */
 
+#ifndef PROTOCOLS_MALICIOUSREPPREP_HPP_
+#define PROTOCOLS_MALICIOUSREPPREP_HPP_
+
 #include "MaliciousRepPrep.h"
+#include "BufferScope.h"
 #include "Tools/Subroutines.h"
 #include "Processor/OnlineOptions.h"
+
+#include "mac_key.hpp"
 
 template<class T>
 MaliciousBitOnlyRepPrep<T>::MaliciousBitOnlyRepPrep(SubProcessor<T>* proc, DataPositions& usage) :
@@ -69,9 +75,13 @@ void MaliciousBitOnlyRepPrep<T>::init_honest(Player& P)
 template<class T>
 void MaliciousRepPrep<T>::buffer_triples()
 {
-    assert(T::open_type::length() >= 40);
+    check_field_size<typename T::open_type>();
     auto& triples = this->triples;
-    auto buffer_size = this->buffer_size;
+    auto buffer_size = BaseMachine::batch_size<T>(DATA_TRIPLE,
+            this->buffer_size);
+    if (OnlineOptions::singleton.has_option("verbose_triples"))
+        fprintf(stderr, "creating %d triples (%d)\n", buffer_size,
+                this->buffer_size);
     auto& honest_proc = this->honest_proc;
     assert(honest_proc != 0);
     Player& P = honest_proc->P;
@@ -79,6 +89,7 @@ void MaliciousRepPrep<T>::buffer_triples()
     check_triples.reserve(buffer_size);
     auto& honest_prot = honest_proc->protocol;
     honest_prot.init_mul();
+    BufferScope scope(honest_prot, 3 * buffer_size);
     for (int i = 0; i < buffer_size; i++)
     {
         check_triples.push_back({});
@@ -100,6 +111,7 @@ void MaliciousRepPrep<T>::buffer_triples()
 template<class T, class U>
 void sacrifice(const vector<array<T, 5>>& check_triples, Player& P)
 {
+    check_field_size<U>();
     vector<T> masked, checks;
     vector <typename T::open_type> opened;
     typename T::MAC_Check MC;
@@ -134,14 +146,14 @@ void MaliciousRepPrep<T>::buffer_squares()
     vector<typename T::open_type> opened;
     vector<array<T, 2>> check_squares;
     auto& squares = this->squares;
-    auto buffer_size = this->buffer_size;
+    auto buffer_size = BaseMachine::batch_size<T>(DATA_SQUARE, this->buffer_size);
     auto& honest_prep = this->honest_prep;
     auto& honest_proc = this->honest_proc;
     auto& MC = this->MC;
     assert(honest_proc);
     Player& P = honest_proc->P;
     squares.clear();
-    honest_prep.buffer_size = buffer_size;
+    BufferScope scope(honest_prep, buffer_size);
     for (int i = 0; i < buffer_size; i++)
     {
         T a, b;
@@ -180,10 +192,11 @@ void MaliciousBitOnlyRepPrep<T>::buffer_bits()
     vector<typename T::open_type> opened;
     vector<array<T, 2>> check_squares;
     auto& bits = this->bits;
-    auto buffer_size = this->buffer_size;
+    auto buffer_size = BaseMachine::batch_size<T>(DATA_BIT,
+            this->buffer_size);
     assert(honest_proc);
     Player& P = honest_proc->P;
-    honest_prep.buffer_size = buffer_size;
+    BufferScope scope(honest_prep, buffer_size);
     bits.clear();
     for (int i = 0; i < buffer_size; i++)
     {
@@ -202,7 +215,7 @@ void MaliciousBitOnlyRepPrep<T>::buffer_bits()
         assert(MC.open(f, P) * MC.open(f, P) == MC.open(h, P));
 #endif
     }
-    auto t = Create_Random<typename T::clear>(P);
+    auto t = Create_Random<typename T::open_type>(P);
     for (int i = 0; i < buffer_size; i++)
     {
         T& a = bits[i];
@@ -210,7 +223,7 @@ void MaliciousBitOnlyRepPrep<T>::buffer_bits()
         masked.push_back(t * a - f);
     }
     MC.POpen(opened, masked, P);
-    typename T::clear t2 = t * t;
+    typename T::open_type t2 = t * t;
     for (int i = 0; i < buffer_size; i++)
     {
         T& a = bits[i];
@@ -229,3 +242,5 @@ void MaliciousRepPrep<T>::buffer_inputs(int player)
     assert(proc);
     this->buffer_inputs_as_usual(player, proc);
 }
+
+#endif

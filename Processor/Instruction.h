@@ -13,6 +13,9 @@ using namespace std;
 
 template<class sint, class sgf2n> class Machine;
 template<class sint, class sgf2n> class Processor;
+template<class T> class SubProcessor;
+template<class T> class MemoryPart;
+template<class T> class StackedVector;
 class ArithmeticProcessor;
 class SwitchableOutput;
 
@@ -69,6 +72,10 @@ enum
     PLAYERID = 0xE4,
     USE_EDABIT = 0xE5,
     USE_MATMUL = 0x1F,
+    ACTIVE = 0xE9,
+    CMDLINEARG = 0xEB,
+    CALL_TAPE = 0xEC,
+    CALL_ARG = 0xED,
     // Addition
     ADDC = 0x20,
     ADDS = 0x21,
@@ -83,6 +90,10 @@ enum
     SUBSI = 0x2A,
     SUBCFI = 0x2B,
     SUBSFI = 0x2C,
+    PREFIXSUMS = 0x2D,
+    PICKS = 0x2E,
+    CONCATS = 0x2F,
+    ZIPS = 0x3F,
     // Multiplication/division/other arithmetic
     MULC = 0x30,
     MULM = 0x31,
@@ -107,6 +118,12 @@ enum
     CONV2DS = 0xAC,
     CHECK = 0xAF,
     PRIVATEOUTPUT = 0xAD,
+    // Shuffling
+    SECSHUFFLE = 0xFA,
+    GENSECSHUFFLE = 0xFB,
+    APPLYSHUFFLE = 0xFC,
+    DELSHUFFLE = 0xFD,
+    INVPERM = 0xFE,
     // Data access
     TRIPLE = 0x50,
     BIT = 0x51,
@@ -141,7 +158,7 @@ enum
     LISTEN = 0x6c,
     ACCEPTCLIENTCONNECTION = 0x6d,
     CLOSECLIENTCONNECTION = 0x6e,
-    READCLIENTPUBLICKEY = 0x6f,
+    INITCLIENTCONNECTION = 0x6f,
     // Bitwise logic
     ANDC = 0x70,
     XORC = 0x71,
@@ -185,6 +202,7 @@ enum
     PRINTREG = 0XB1,
     RAND = 0xB2,
     PRINTREGPLAIN = 0xB3,
+    PRINTREGPLAINS = 0xEA,
     PRINTCHR = 0xB4,
     PRINTSTR = 0xB5,
     PUBINPUT = 0xB6,
@@ -201,6 +219,7 @@ enum
     CONDPRINTPLAIN = 0xE1,
     INTOUTPUT = 0xE6,
     FLOATOUTPUT = 0xE7,
+    FIXINPUT = 0xE8,
 
     // GF(2^n) versions
     
@@ -250,6 +269,7 @@ enum
     GMULS = 0x1A6,
     GMULRS = 0x1A7,
     GDOTPRODS = 0x1A8,
+    GSECSHUFFLE = 0x1FA,
     // Data access
     GTRIPLE = 0x150,
     GBIT = 0x151,
@@ -277,8 +297,9 @@ enum
     // Bitwise shifts
     GSHLCI = 0x182,
     GSHRCI = 0x183,
-    GBITDEC = 0x184,
-    GBITCOM = 0x185,
+    GSHRSI = 0x184,
+    GBITDEC = 0x18A,
+    GBITCOM = 0x18B,
     // Conversion
     GCONVINT = 0x1C0,
     GCONVGF2N = 0x1C1,
@@ -286,6 +307,7 @@ enum
     GPRINTMEM = 0x1B0,
     GPRINTREG = 0X1B1,
     GPRINTREGPLAIN = 0x1B3,
+    GPRINTREGPLAINS = 0x1EA,
     GRAWOUTPUT = 0x1B7,
     GSTARTPRIVATEOUTPUT = 0x1B8,
     GSTOPPRIVATEOUTPUT = 0x1B9,
@@ -328,14 +350,16 @@ protected:
   int opcode;         // The code
   int size;           // Vector size
   int r[4];           // Fixed parameter registers
-  unsigned int n;     // Possible immediate value
+  size_t n;             // Possible immediate value
   vector<int>  start; // Values for a start/stop open
+  string str;
 
 public:
+  BaseInstruction() : opcode(0), size(0), n(0) {}
   virtual ~BaseInstruction() {};
 
   int get_r(int i) const { return r[i]; }
-  unsigned int get_n() const { return n; }
+  size_t get_n() const { return n; }
   const vector<int>& get_start() const { return start; }
   int get_opcode() const { return opcode; }
   int get_size() const { return size; }
@@ -350,10 +374,12 @@ public:
   bool is_direct_memory_access() const;
 
   // Returns the memory size used if applicable and known
-  unsigned get_mem(RegType reg_type) const;
+  size_t get_mem(RegType reg_type) const;
 
   // Returns the maximal register used
   unsigned get_max_reg(int reg_type) const;
+
+  string get_name() const;
 };
 
 class DataPositions;
@@ -372,15 +398,15 @@ public:
   void execute(Processor<sint, sgf2n>& Proc) const;
 
   template<class cgf2n>
-  void execute_clear_gf2n(vector<cgf2n>& registers, vector<cgf2n>& memory,
+  void execute_clear_gf2n(StackedVector<cgf2n>& registers, MemoryPart<cgf2n>& memory,
       ArithmeticProcessor& Proc) const;
 
   template<class cgf2n>
-  void gbitdec(vector<cgf2n>& registers) const;
+  void gbitdec(StackedVector<cgf2n>& registers) const;
   template<class cgf2n>
-  void gbitcom(vector<cgf2n>& registers) const;
+  void gbitcom(StackedVector<cgf2n>& registers) const;
 
-  void execute_regint(ArithmeticProcessor& Proc, vector<Integer>& Mi) const;
+  void execute_regint(ArithmeticProcessor& Proc, MemoryPart<Integer>& Mi) const;
 
   void shuffle(ArithmeticProcessor& Proc) const;
   void bitdecint(ArithmeticProcessor& Proc) const;
@@ -388,6 +414,9 @@ public:
   template<class T>
   void print(SwitchableOutput& out, T* v, T* p = 0, T* s = 0, T* z = 0,
       T* nan = 0) const;
+
+  template<class T>
+  typename T::clear sanitize(SubProcessor<T>& proc, int reg) const;
 };
 
 #endif

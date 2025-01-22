@@ -237,9 +237,14 @@ class BitVector
         return true;
     }
 
-    bool operator==(const BitVector& other)
+    bool operator==(const BitVector& other) const
     {
         return equals(other);
+    }
+
+    bool operator!=(const BitVector& other) const
+    {
+        return not equals(other);
     }
 
     void append(const BitVector& other, size_t length);

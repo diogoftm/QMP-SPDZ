@@ -68,6 +68,7 @@ public:
     {
         init_field(T::pr(), montgomery);
     }
+    static void reset();
 
     static const Zp_Data& get_ZpD();
     static const bigint& pr();
@@ -81,6 +82,7 @@ public:
     {
         write_setup(get_prep_sub_dir<T>(nplayers));
     }
+    static string fake_opts() { return " -P " + to_string(pr()); }
 
     gfpvar_();
     gfpvar_(int other);
@@ -105,6 +107,12 @@ public:
     {
         assert(pr() == other.pr());
         a = other.get();
+    }
+
+    template<int K>
+    gfpvar_(const Z2<K>& other) :
+            gfpvar_(bigint(other))
+    {
     }
 
     void assign(const void* buffer);
@@ -140,8 +148,6 @@ public:
 
     bool operator==(const gfpvar_& other) const;
     bool operator!=(const gfpvar_& other) const;
-
-    void add(octetStream& other);
 
     void negate();
 

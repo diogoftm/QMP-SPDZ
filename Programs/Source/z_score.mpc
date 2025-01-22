@@ -1,0 +1,30 @@
+import sys
+from Compiler.mpc_math import sqrt
+
+program.use_trunc_pr = True # ???
+program.use_edabit(True)
+
+sfix.set_precision(12, 31)
+
+n_inputs = int(sys.argv[2])
+n = n_inputs*2
+sum = sfix.Array(10)
+
+points = MultiArray([n, 10], sfix)
+
+for i in range(n_inputs):
+    points[i].input_from(0)
+    points[n_inputs+i].input_from(1)
+    sum +=  points[i] + points[n_inputs+i]  
+
+mean = sum/(n)
+
+sum_std = sfix.Array(10)
+for i in range(n):
+    sum_std +=  (points[i] - mean)**2
+
+stdev = sqrt(sum_std / n)
+
+for i in range(n):
+    print_ln("%s", ((points[i] - mean) / stdev).reveal())
+

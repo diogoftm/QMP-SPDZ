@@ -36,11 +36,10 @@ void BufferBase::seekg(int pos)
 {
     assert(not is_pipe());
 
-#ifdef DEBUG_BUFFER
-    if (pos != 0)
+    if (pos != 0 and OnlineOptions::singleton.has_option("verbose_buffer"))
         printf("seek %d %s thread %d\n", pos, filename.c_str(),
                 BaseMachine::thread_num);
-#endif
+
     if (not file)
     {
         if (pos == 0)
@@ -65,6 +64,7 @@ void BufferBase::seekg(int pos)
 
 void BufferBase::try_rewind()
 {
+    assert(not OnlineOptions::singleton.has_option("no_rewind"));
     assert(not is_pipe());
 
 #ifndef INSECURE
@@ -78,13 +78,18 @@ void BufferBase::try_rewind()
     if (file->peek() == ifstream::traits_type::eof())
         throw runtime_error("empty file: " + filename);
     if (!rewind)
-        cerr << "REWINDING - ONLY FOR BENCHMARKING" << endl;
+        cerr << "REUSING DATA - ONLY FOR BENCHMARKING" << endl;
     rewind = true;
     eof = true;
 }
 
 void BufferBase::prune()
 {
+    // only prune in secure mode
+#ifdef INSECURE
+    return;
+#endif
+
     if (is_pipe())
         return;
 
@@ -98,7 +103,8 @@ void BufferBase::prune()
         string tmp_name = filename + ".new";
         ofstream tmp(tmp_name.c_str());
         size_t start = file->tellg();
-        char buf[header_length];
+        start -= element_length() * (BUFFER_SIZE - next);
+        char* buf = new char[header_length];
         file->seekg(0);
         file->read(buf, header_length);
         tmp.write(buf, header_length);
@@ -112,6 +118,7 @@ void BufferBase::prune()
         file->close();
         rename(tmp_name.c_str(), filename.c_str());
         file->open(filename.c_str(), ios::in | ios::binary);
+        delete[] buf;
     }
 #ifdef VERBOSE
     else
@@ -128,14 +135,24 @@ void BufferBase::prune()
 
 void BufferBase::purge()
 {
-    if (file and not is_pipe())
+    bool verbose = OnlineOptions::singleton.has_option("verbose_purge");
+    if (not filename.empty() and not is_pipe())
     {
-#ifdef VERBOSE
-        cerr << "Removing " << filename << endl;
-#endif
+        if (verbose)
+            cerr << "Removing " << filename << endl;
         unlink(filename.c_str());
-        file->close();
-        file = 0;
+        if (file)
+        {
+            file->close();
+            file = 0;
+        }
+    }
+    else if (verbose)
+    {
+        cerr << "Not removing " << filename;
+        if (is_pipe())
+            cerr << "because it's a pipe";
+        cerr << endl;
     }
 }
 

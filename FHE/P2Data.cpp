@@ -2,6 +2,7 @@
 #include "FHE/P2Data.h"
 #include "Math/Setup.h"
 #include "Math/fixint.h"
+#include "Processor/OnlineOptions.h"
 #include <fstream>
 
 
@@ -55,13 +56,13 @@ void P2Data::check_dimensions() const
 //  cout << "Ai: " << Ai.size() << "x" << Ai[0].size() << endl;
   if (A.size() != Ai.size())
     throw runtime_error("forward and backward mapping dimensions mismatch");
-  if (A.size() != A[0].size())
+  if (A.size() != A.at(0).size())
     throw runtime_error("forward mapping not square");
-  if (Ai.size() != Ai[0].size())
+  if (Ai.size() != Ai.at(0).size())
     throw runtime_error("backward mapping not square");
-  if ((int)A[0].size() != slots * gf2n_short::degree())
+  if ((int)A.at(0).size() != slots * gf2n_short::degree())
         throw runtime_error(
-                "mapping dimension incorrect: " + to_string(A[0].size())
+                "mapping dimension incorrect: " + to_string(A.at(0).size())
                         + " != " + to_string(slots) + " * "
                         + to_string(gf2n_short::degree()));
 }
@@ -74,7 +75,6 @@ bool P2Data::operator!=(const P2Data& other) const
 
 void P2Data::hash(octetStream& o) const
 {
-  check_dimensions();
   o.store(gf2n_short::degree());
   o.store(slots);
   A.hash(o);
@@ -113,17 +113,18 @@ string get_filename(const Ring& Rg)
 void P2Data::load(const Ring& Rg)
 {
   string filename = get_filename(Rg);
-  cout << "Loading from " << filename << endl;
-  ifstream s(filename);
+  if (OnlineOptions::singleton.verbose)
+    cerr << "Loading from " << filename << endl;
   octetStream os;
-  os.input(s);
+  os.input(filename);
   unpack(os);
 }
 
 void P2Data::store(const Ring& Rg) const
 {
   string filename = get_filename(Rg);
-  cout << "Storing in " << filename << endl;
+  if (OnlineOptions::singleton.verbose)
+    cerr << "Storing in " << filename << endl;
   ofstream s(filename);
   octetStream os;
   pack(os);

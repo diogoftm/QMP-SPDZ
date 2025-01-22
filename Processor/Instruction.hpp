@@ -33,9 +33,9 @@ void BaseInstruction::parse(istream& s, int inst_pos)
   r[0]=0; r[1]=0; r[2]=0; r[3]=0;
 
   int pos=s.tellg();
-  opcode=get_int(s);
-  size=unsigned(opcode)>>10;
-  opcode&=0x3FF;
+  uint64_t code = get_long(s);
+  size = code >> 10;
+  opcode = 0x3FF & code;
   
   if (size==0)
     size=1;
@@ -92,6 +92,7 @@ void BaseInstruction::parse_operands(istream& s, int pos, int file_pos)
       case DIVINT:
       case CONDPRINTPLAIN:
       case INPUTMASKREG:
+      case ZIPS:
         get_ints(r, s, 3);
         break;
       // instructions with 2 register operands
@@ -105,7 +106,6 @@ void BaseInstruction::parse_operands(istream& s, int pos, int file_pos)
       case STMCBI:
       case MOVC:
       case MOVS:
-      case MOVSB:
       case MOVINT:
       case LDMINTI:
       case STMINTI:
@@ -130,6 +130,8 @@ void BaseInstruction::parse_operands(istream& s, int pos, int file_pos)
       case DABIT:
       case SHUFFLE:
       case ACCEPTCLIENTCONNECTION:
+      case PREFIXSUMS:
+      case CMDLINEARG:
         get_ints(r, s, 2);
         break;
       // instructions with 1 register operand
@@ -138,12 +140,14 @@ void BaseInstruction::parse_operands(istream& s, int pos, int file_pos)
       case RANDOMFULLS:
       case PRINTREGPLAIN:
       case PRINTREGPLAINB:
+      case PRINTREGPLAINS:
       case LDTN:
       case LDARG:
       case STARG:
       case JMPI:
       case GBIT:
       case GPRINTREGPLAIN:
+      case GPRINTREGPLAINS:
       case JOIN_TAPE:
       case PUSHINT:
       case POPINT:
@@ -157,6 +161,7 @@ void BaseInstruction::parse_operands(istream& s, int pos, int file_pos)
       case LISTEN:
       case CLOSECLIENTCONNECTION:
       case CRASH:
+      case DELSHUFFLE:
         r[0]=get_int(s);
         break;
       // instructions with 2 registers + 1 integer operand
@@ -197,15 +202,25 @@ void BaseInstruction::parse_operands(istream& s, int pos, int file_pos)
       case GORCI:
       case GSHLCI:
       case GSHRCI:
-      case USE:
-      case USE_INP:
-      case USE_EDABIT:
+      case GSHRSI:
       case DIGESTC:
       case INPUTMASK:
       case GINPUTMASK:
+      case SECSHUFFLE:
+      case GSECSHUFFLE:
         get_ints(r, s, 2);
         n = get_int(s);
         break;
+      case PICKS:
+        get_ints(r, s, 3);
+        n = get_int(s);
+        break;
+      case USE:
+      case USE_INP:
+      case USE_EDABIT:
+          get_ints(r, s, 2);
+          n = get_long(s);
+          break;
       case STARTPRIVATEOUTPUT:
       case GSTARTPRIVATEOUTPUT:
       case STOPPRIVATEOUTPUT:
@@ -213,11 +228,29 @@ void BaseInstruction::parse_operands(istream& s, int pos, int file_pos)
         throw runtime_error("two-stage private output not supported any more");
       case USE_MATMUL:
         get_ints(r, s, 3);
-        n = get_int(s);
+        n = get_long(s);
         break;
       // instructions with 1 register + 1 integer operand
       case LDI:
       case LDSI:
+      case JMPNZ:
+      case JMPEQZ:
+      case GLDI:
+      case GLDSI:
+      case PRINTREG:
+      case PRINTREGB:
+      case GPRINTREG:
+      case LDINT:
+      case INV2M:
+      case CONDPRINTSTR:
+      case CONDPRINTSTRB:
+      case RANDOMS:
+      case GENSECSHUFFLE:
+      case CALL_ARG:
+        r[0]=get_int(s);
+        n = get_int(s);
+        break;
+      // instructions with 1 register + 1 long operand
       case LDMC:
       case LDMS:
       case STMC:
@@ -228,24 +261,12 @@ void BaseInstruction::parse_operands(istream& s, int pos, int file_pos)
       case STMCB:
       case LDMINT:
       case STMINT:
-      case JMPNZ:
-      case JMPEQZ:
-      case GLDI:
-      case GLDSI:
       case GLDMC:
       case GLDMS:
       case GSTMC:
       case GSTMS:
-      case PRINTREG:
-      case PRINTREGB:
-      case GPRINTREG:
-      case LDINT:
-      case INV2M:
-      case CONDPRINTSTR:
-      case CONDPRINTSTRB:
-      case RANDOMS:
-        r[0]=get_int(s);
-        n = get_int(s);
+        r[0] = get_int(s);
+        n = get_long(s);
         break;
       // instructions with 1 integer operand
       case PRINTSTR:
@@ -265,6 +286,7 @@ void BaseInstruction::parse_operands(istream& s, int pos, int file_pos)
       // instructions with 5 register operands
       case PRINTFLOATPLAIN:
       case PRINTFLOATPLAINB:
+      case APPLYSHUFFLE:
         get_vector(5, start, s);
         break;
       case INCINT:
@@ -273,9 +295,11 @@ void BaseInstruction::parse_operands(istream& s, int pos, int file_pos)
         n = get_int(s);
         get_vector(2, start, s);
         break;
+      // instructions with 2 register operands
+      case INVPERM:
+          get_vector(2, start, s);
+          break;
       // open instructions + read/write instructions with variable length args
-      case OPEN:
-      case GOPEN:
       case MULS:
       case GMULS:
       case MULRS:
@@ -295,25 +319,20 @@ void BaseInstruction::parse_operands(istream& s, int pos, int file_pos)
       case PRIVATEOUTPUT:
       case TRUNC_PR:
       case RUN_TAPE:
+      case CONV2DS:
+      case MATMULS:
         num_var_args = get_int(s);
         get_vector(num_var_args, start, s);
         break;
-      case MATMULS:
-        get_ints(r, s, 3);
-        get_vector(3, start, s);
-        break;
       case MATMULSM:
-        get_ints(r, s, 3);
-        get_vector(9, start, s);
-        break;
-      case CONV2DS:
-        get_ints(r, s, 3);
-        get_vector(12, start, s);
+        num_var_args = get_int(s);
+        get_vector(num_var_args, start, s);
         break;
 
       // read from file, input is opcode num_args, 
       //   start_file_posn (read), end_file_posn(write) var1, var2, ...
       case READFILESHARE:
+      case CALL_TAPE:
         num_var_args = get_int(s) - 2;
         r[0] = get_int(s);
         r[1] = get_int(s);
@@ -341,7 +360,10 @@ void BaseInstruction::parse_operands(istream& s, int pos, int file_pos)
         n = get_int(s);
         get_vector(num_var_args, start, s);
         break;
-      case READCLIENTPUBLICKEY:
+      case INITCLIENTCONNECTION:
+        get_ints(r, s, 3);
+        get_string(str, s);
+        break;
       case INITSECURESOCKET:
       case RESPSECURESOCKET:
         throw runtime_error("VM-controlled encryption not supported any more");
@@ -379,6 +401,7 @@ void BaseInstruction::parse_operands(istream& s, int pos, int file_pos)
       case EDABIT:
       case SEDABIT:
       case WRITEFILESHARE:
+      case CONCATS:
           num_var_args = get_int(s) - 1;
           r[0] = get_int(s);
           get_vector(num_var_args, start, s);
@@ -394,7 +417,7 @@ void BaseInstruction::parse_operands(istream& s, int pos, int file_pos)
       case USE_PREP:
       case GUSE_PREP:
         s.read((char*)r, sizeof(r));
-        n = get_int(s);
+        n = get_long(s);
         break;
       case REQBL:
         n = get_int(s);
@@ -409,9 +432,14 @@ void BaseInstruction::parse_operands(istream& s, int pos, int file_pos)
             throw Processor_Error(ss.str());
           }
         break;
+      case ACTIVE:
+        n = get_int(s);
+        BaseMachine::s().active(n);
+        break;
       case XORM:
       case ANDM:
       case XORCB:
+      case FIXINPUT:
         n = get_int(s);
         get_ints(r, s, 3);
         break;
@@ -436,6 +464,7 @@ void BaseInstruction::parse_operands(istream& s, int pos, int file_pos)
       case CONVCBIT2S:
       case NOTS:
       case NOTCB:
+      case MOVSB:
         n = get_int(s);
         get_ints(r, s, 2);
         break;
@@ -446,6 +475,7 @@ void BaseInstruction::parse_operands(istream& s, int pos, int file_pos)
       case STMSDCI:
       case XORS:
       case ANDRS:
+      case ANDRSVEC:
       case ANDS:
       case INPUTB:
       case INPUTBVEC:
@@ -461,6 +491,8 @@ void BaseInstruction::parse_operands(istream& s, int pos, int file_pos)
         n = get_int(s);
         get_vector(4, start, s);
         break;
+      case OPEN:
+      case GOPEN:
       case TRANS:
         num_var_args = get_int(s) - 1;
         n = get_int(s);
@@ -475,7 +507,7 @@ void BaseInstruction::parse_operands(istream& s, int pos, int file_pos)
       default:
         ostringstream os;
         os << "Invalid instruction " << showbase << hex << opcode << " at " << dec
-            << pos << "/" << hex << file_pos << dec << endl;
+            << pos << "/" << hex << file_pos << dec;
         throw Invalid_Instruction(os.str());
   }
 }
@@ -491,26 +523,29 @@ bool Instruction::get_offline_data_usage(DataPositions& usage)
       if (r[1] >= N_DTYPE)
         throw invalid_program();
       usage.files[r[0]][r[1]] = n;
-      return int(n) >= 0;
+      return long(n) >= 0;
     case USE_INP:
       if (r[0] >= N_DATA_FIELD_TYPE)
         throw invalid_program();
-      if ((unsigned)r[1] >= usage.inputs.size())
-        throw Processor_Error("Player number too high");
-      usage.inputs[r[1]][r[0]] = n;
-      return int(n) >= 0;
+      if (usage.inputs.size() != 1)
+        {
+          if ((unsigned) r[1] >= usage.inputs.size())
+            throw Processor_Error("Player number too high");
+          usage.inputs[r[1]][r[0]] = n;
+        }
+      return long(n) >= 0;
     case USE_EDABIT:
       usage.edabits[{r[0], r[1]}] = n;
-      return int(n) >= 0;
+      return long(n) >= 0;
     case USE_MATMUL:
       usage.matmuls[{{r[0], r[1], r[2]}}] = n;
-      return int(n) >= 0;
+      return long(n) >= 0;
     case USE_PREP:
       usage.extended[DATA_INT][r] = n;
-      return int(n) >= 0;
+      return long(n) >= 0;
     case GUSE_PREP:
       usage.extended[gf2n::field_type()][r] = n;
-      return int(n) >= 0;
+      return long(n) >= 0;
     default:
       return true;
   }
@@ -537,7 +572,7 @@ int BaseInstruction::get_reg_type() const
     case MOVINT:
     case READSOCKETINT:
     case WRITESOCKETINT:
-    case READCLIENTPUBLICKEY:
+    case INITCLIENTCONNECTION:
     case INITSECURESOCKET:
     case RESPSECURESOCKET:
     case LDARG:
@@ -554,6 +589,9 @@ int BaseInstruction::get_reg_type() const
     case CONVCBITVEC:
     case INTOUTPUT:
     case ACCEPTCLIENTCONNECTION:
+    case GENSECSHUFFLE:
+    case CMDLINEARG:
+    case CALL_TAPE:
       return INT;
     case PREP:
     case GPREP:
@@ -562,7 +600,6 @@ int BaseInstruction::get_reg_type() const
     case USE_EDABIT:
     case USE_MATMUL:
     case RUN_TAPE:
-    case CISC:
       // those use r[] not for registers
       return NONE;
     case LDI:
@@ -603,7 +640,10 @@ int BaseInstruction::get_reg_type() const
     case FLOATOUTPUT:
     case READSOCKETC:
     case PRIVATEOUTPUT:
+    case FIXINPUT:
       return CINT;
+    case CALL_ARG:
+      return n;
     default:
       if (is_gf2n_instruction())
         {
@@ -628,6 +668,7 @@ unsigned BaseInstruction::get_max_reg(int reg_type) const
   int offset = 0;
   int size_offset = 0;
   int size = this->size;
+  bool n_prefix = 0;
 
   // special treatment for instructions writing to different types
   switch (opcode)
@@ -655,6 +696,29 @@ unsigned BaseInstruction::get_max_reg(int reg_type) const
           return r[1] + size;
       else
           return 0;
+  case TRANS:
+      if (reg_type == SBIT)
+      {
+          int n_outputs = n;
+          auto& args = start;
+          int n_inputs = args.size() - n_outputs;
+          long long res = 0;
+          for (int i = 0; i < n_outputs; i++)
+              res = max(res, args[i] + DIV_CEIL(n_inputs, 64));
+          for (int j = 0; j < n_inputs; j++)
+              res = max(res, args[n_outputs] + DIV_CEIL(n_outputs, 64));
+          return res;
+      }
+      else
+          return 0;
+  case CALL_TAPE:
+  {
+      int res = 0;
+      for (auto it = start.begin(); it < start.end(); it += 5)
+          if (it[1] == reg_type)
+              res = max(res, (*it ? it[3] : it[4]) + it[2]);
+      return res;
+  }
   default:
       if (get_reg_type() != reg_type)
           return 0;
@@ -662,6 +726,21 @@ unsigned BaseInstruction::get_max_reg(int reg_type) const
 
   switch (opcode)
   {
+  case CISC:
+  {
+      int res = 0;
+      for (auto it = start.begin(); it < start.end(); it += *it)
+      {
+          assert(it + *it <= start.end());
+          res = max(res, it[1] + it[2]);
+      }
+      return res;
+  }
+  case MULS:
+      skip = 4;
+      offset = 1;
+      size_offset = -1;
+      break;
   case DOTPRODS:
   {
       int res = 0;
@@ -676,10 +755,35 @@ unsigned BaseInstruction::get_max_reg(int reg_type) const
       return res;
   }
   case MATMULS:
+  {
+      int res = 0;
+      for (auto it = start.begin(); it < start.end(); it += 6)
+      {
+          int tmp = *it + *(it + 3) * *(it + 5);
+          res = max(res, tmp);
+      }
+      return res;
+  }
   case MATMULSM:
-      return r[0] + start[0] * start[2];
+  {
+      int res = 0;
+      for (auto it = start.begin(); it < start.end(); it += 12)
+      {
+          res = max(res, *it + *(it + 3) * *(it + 5));
+      }
+      return res;
+  }
   case CONV2DS:
-      return r[0] + start[0] * start[1] * start[11];
+  {
+      unsigned res = 0;
+      for (size_t i = 0; i < start.size(); i += 15)
+      {
+          unsigned tmp = start[i]
+                               + start[i + 3] * start[i + 4] * start.at(i + 14);
+          res = max(res, tmp);
+      }
+      return res;
+  }
   case OPEN:
       skip = 2;
       break;
@@ -698,25 +802,17 @@ unsigned BaseInstruction::get_max_reg(int reg_type) const
       offset = 1;
       size_offset = -1;
       break;
+  case ANDRSVEC:
+      n_prefix = 2;
+      break;
   case INPUTB:
       skip = 4;
       offset = 3;
       size_offset = -2;
       break;
   case INPUTBVEC:
-  {
-	  int res = 0;
-	  auto it = start.begin();
-	  while (it < start.end())
-	  {
-		  int n = *it - 3;
-		  it += 3;
-		  assert(it + n <= start.end());
-		  for (int i = 0; i < n; i++)
-			  res = max(res, *it++);
-	  }
-	  return res + 1;
-  }
+      n_prefix = 3;
+      break;
   case ANDM:
   case NOTS:
   case NOTCB:
@@ -762,13 +858,34 @@ unsigned BaseInstruction::get_max_reg(int reg_type) const
       break;
   }
 
+  if (n_prefix > 0)
+  {
+      int res = 0;
+      auto it = start.begin();
+      while (it < start.end())
+      {
+          int n = *it - n_prefix;
+          size = max((long long) size, DIV_CEIL(*(it + 1), 64));
+          it += n_prefix;
+          assert(it + n <= start.end());
+          for (int i = 0; i < n; i++)
+              res = max(res, *it++ + size);
+      }
+      return res;
+  }
+
   if (skip > 0)
   {
       unsigned m = 0;
       for (size_t i = offset; i < start.size(); i += skip)
       {
           if (size_offset != 0)
-              size = DIV_CEIL(start[i + size_offset], 64);
+          {
+              if (opcode & 0x200)
+                  size = DIV_CEIL(start[i + size_offset], 64);
+              else
+                  size = start[i + size_offset];
+          }
           m = max(m, (unsigned)start[i] + size);
       }
       return m;
@@ -783,7 +900,7 @@ unsigned BaseInstruction::get_max_reg(int reg_type) const
 }
 
 inline
-unsigned BaseInstruction::get_mem(RegType reg_type) const
+size_t BaseInstruction::get_mem(RegType reg_type) const
 {
   if (get_reg_type() == reg_type and is_direct_memory_access())
     return n + size;
@@ -827,23 +944,29 @@ inline void Instruction::execute(Processor<sint, sgf2n>& Proc) const
   switch (opcode)
   {
     case CONVMODP:
-      if (n == 0)
-        {
-          for (int i = 0; i < size; i++)
-            Proc.write_Ci(r[0] + i,
-                Integer::convert_unsigned(Proc.read_Cp(r[1] + i)).get());
-        }
-      else if (n <= 64)
-        for (int i = 0; i < size; i++)
-          Proc.write_Ci(r[0] + i, Integer(Proc.read_Cp(r[1] + i), n).get());
-      else
-        throw Processor_Error(to_string(n) + "-bit conversion impossible; "
-            "integer registers only have 64 bits");
+      vector<Integer> values;
+      values.reserve(size);
+      for (int i = 0; i < size; i++)
+      {
+          auto source = Proc.read_Cp(r[1] + i);
+          Integer tmp;
+          if (n == 0)
+              tmp = Integer::convert_unsigned(source);
+          else if (n <= 64)
+              tmp = Integer(source, n);
+          else
+            throw Processor_Error(to_string(n) + "-bit conversion impossible; "
+                "integer registers only have 64 bits");
+          values.push_back(tmp);
+      }
+      sync<sint>(values, Proc.P);
+      for (int i = 0; i < size; i++)
+          Proc.write_Ci(r[0] + i, values[i].get());
       return;
   }
 
   int r[3] = {this->r[0], this->r[1], this->r[2]};
-  int n = this->n;
+  int64_t n = this->n;
   for (int i = 0; i < size; i++) 
   { switch (opcode)
     {
@@ -851,41 +974,52 @@ inline void Instruction::execute(Processor<sint, sgf2n>& Proc) const
         Proc.write_Cp(r[0],Proc.machine.Mp.read_C(n));
         n++;
         break;
-      case LDMCI:
-        Proc.write_Cp(r[0], Proc.machine.Mp.read_C(Proc.read_Ci(r[1])));
-        break;
       case STMC:
         Proc.machine.Mp.write_C(n,Proc.read_Cp(r[0]));
         n++;
         break;
-      case STMCI:
-        Proc.machine.Mp.write_C(Proc.read_Ci(r[1]), Proc.read_Cp(r[0]));
-        break;
       case MOVC:
         Proc.write_Cp(r[0],Proc.read_Cp(r[1]));
         break;
+      case CONCATS:
+        {
+          auto& S = Proc.Procp.get_S();
+          auto dest = S.begin() + r[0];
+          for (auto j = start.begin(); j < start.end(); j += 2)
+            {
+              auto source = S.begin() + *(j + 1);
+              assert(dest + *j <= S.end());
+              assert(source + *j <= S.end());
+              for (int k = 0; k < *j; k++)
+                *dest++ = *source++;
+            }
+          return;
+        }
+      case ZIPS:
+        {
+          auto& S = Proc.Procp.get_S();
+          auto dest = S.begin() + r[0];
+          for (int i = 0; i < get_size(); i++)
+            {
+              *dest++ = S[r[1] + i];
+              *dest++ = S[r[2] + i];
+            }
+          return;
+        }
       case DIVC:
-        if (Proc.read_Cp(r[2]).is_zero())
-          throw Processor_Error("Division by zero from register");
-        Proc.write_Cp(r[0], Proc.read_Cp(r[1]) / Proc.read_Cp(r[2]));
+        Proc.write_Cp(r[0], Proc.read_Cp(r[1]) / sanitize(Proc.Procp, r[2]));
         break;
       case GDIVC:
-        if (Proc.read_C2(r[2]).is_zero())
-          throw Processor_Error("Division by zero from register");
-        Proc.write_C2(r[0], Proc.read_C2(r[1]) / Proc.read_C2(r[2]));
+        Proc.write_C2(r[0], Proc.read_C2(r[1]) / sanitize(Proc.Proc2, r[2]));
         break;
       case FLOORDIVC:
-        if (Proc.read_Cp(r[2]).is_zero())
-          throw Processor_Error("Division by zero from register");
         Proc.temp.aa.from_signed(Proc.read_Cp(r[1]));
-        Proc.temp.aa2.from_signed(Proc.read_Cp(r[2]));
+        Proc.temp.aa2.from_signed(sanitize(Proc.Procp, r[2]));
         Proc.write_Cp(r[0], bigint(Proc.temp.aa / Proc.temp.aa2));
         break;
       case MODC:
-        if (Proc.read_Cp(r[2]).is_zero())
-          throw Processor_Error("Modulo by zero from register");
         to_bigint(Proc.temp.aa, Proc.read_Cp(r[1]));
-        to_bigint(Proc.temp.aa2, Proc.read_Cp(r[2]));
+        to_bigint(Proc.temp.aa2, sanitize(Proc.Procp, r[2]));
         mpz_fdiv_r(Proc.temp.aa.get_mpz_t(), Proc.temp.aa.get_mpz_t(), Proc.temp.aa2.get_mpz_t());
         Proc.temp.ansp.convert_destroy(Proc.temp.aa);
         Proc.write_Cp(r[0],Proc.temp.ansp);
@@ -986,6 +1120,7 @@ inline void Instruction::execute(Processor<sint, sgf2n>& Proc) const
         Proc.Procp.send_personal(start);
         return;
       case PRIVATEOUTPUT:
+        Proc.Procp.check();
         Proc.Procp.private_output(start);
         return;
       // Note: Fp version has different semantics for NOTC than GNOTC
@@ -1001,17 +1136,20 @@ inline void Instruction::execute(Processor<sint, sgf2n>& Proc) const
       case SHRSI:
         sint::shrsi(Procp, *this);
         return;
+      case GSHRSI:
+        sgf2n::shrsi(Proc2, *this);
+        return;
       case OPEN:
-        Proc.Procp.POpen(start, Proc.P, size);
+        Proc.Procp.POpen(*this);
         return;
       case GOPEN:
-        Proc.Proc2.POpen(start, Proc.P, size);
+        Proc.Proc2.POpen(*this);
         return;
       case MULS:
-        Proc.Procp.muls(start, size);
+        Proc.Procp.muls(start);
         return;
       case GMULS:
-        Proc.Proc2.protocol.muls(start, Proc.Proc2, Proc.MC2, size);
+        Proc.Proc2.muls(start);
         return;
       case MULRS:
         Proc.Procp.mulrs(start);
@@ -1026,17 +1164,36 @@ inline void Instruction::execute(Processor<sint, sgf2n>& Proc) const
         Proc.Proc2.dotprods(start, size);
         return;
       case MATMULS:
-        Proc.Procp.matmuls(Proc.Procp.get_S(), *this, r[1], r[2]);
+        Proc.Procp.matmuls(Proc.Procp.get_S(), *this);
         return;
       case MATMULSM:
-        Proc.Procp.protocol.matmulsm(Proc.Procp, Proc.machine.Mp.MS, *this,
-            Proc.read_Ci(r[1]), Proc.read_Ci(r[2]));
+        Proc.Procp.protocol.matmulsm(Proc.Procp, Proc.machine.Mp.MS, *this);
         return;
       case CONV2DS:
         Proc.Procp.protocol.conv2ds(Proc.Procp, *this);
         return;
       case TRUNC_PR:
         Proc.Procp.protocol.trunc_pr(start, size, Proc.Procp);
+        return;
+      case SECSHUFFLE:
+        Proc.Procp.secure_shuffle(*this);
+        return;
+      case GSECSHUFFLE:
+        Proc.Proc2.secure_shuffle(*this);
+        return;
+      case GENSECSHUFFLE:
+        Proc.write_Ci(r[0], Proc.Procp.generate_secure_shuffle(*this,
+            Proc.machine.shuffle_store));
+        return;
+      case APPLYSHUFFLE:
+        Proc.Procp.apply_shuffle(*this, Proc.read_Ci(start.at(3)),
+            Proc.machine.shuffle_store);
+        return;
+      case DELSHUFFLE:
+        Proc.machine.shuffle_store.del(Proc.read_Ci(r[0]));
+        return;
+      case INVPERM:
+        Proc.Procp.inverse_permutation(*this);
         return;
       case CHECK:
         {
@@ -1065,11 +1222,17 @@ inline void Instruction::execute(Processor<sint, sgf2n>& Proc) const
       case PRINTREG:
            {
              Proc.out << "Reg[" << r[0] << "] = " << Proc.read_Cp(r[0])
-              << " # " << string((char*)&n,sizeof(n)) << endl;
+              << " # " << string((char*)&n, 4) << endl;
            }
         break;
       case PRINTREGPLAIN:
         print(Proc.out, &Proc.read_Cp(r[0]));
+        return;
+      case PRINTREGPLAINS:
+        Proc.out << Proc.read_Sp(r[0]);
+        return;
+      case GPRINTREGPLAINS:
+        Proc.out << Proc.read_S2(r[0]);
         return;
       case CONDPRINTPLAIN:
         if (not Proc.read_Cp(r[0]).is_zero())
@@ -1085,7 +1248,7 @@ inline void Instruction::execute(Processor<sint, sgf2n>& Proc) const
       case CONDPRINTSTR:
           if (not Proc.read_Cp(r[0]).is_zero())
             {
-              string str = {(char*)&n, sizeof(n)};
+              string str = {(char*)&n, 4};
               size_t n = str.find('\0');
               if (n < 4)
                 str.erase(n);
@@ -1094,6 +1257,7 @@ inline void Instruction::execute(Processor<sint, sgf2n>& Proc) const
         break;
       case REQBL:
       case GREQBL:
+      case ACTIVE:
       case USE:
       case USE_INP:
       case USE_EDABIT:
@@ -1118,6 +1282,9 @@ inline void Instruction::execute(Processor<sint, sgf2n>& Proc) const
       case JOIN_TAPE:
         Proc.machine.join_tape(r[0]);
         break;
+      case CALL_TAPE:
+        Proc.call_tape(r[0], Proc.read_Ci(r[1]), start);
+        break;
       case CRASH:
         if (Proc.read_Ci(r[0]))
           throw crash_requested();
@@ -1137,6 +1304,19 @@ inline void Instruction::execute(Processor<sint, sgf2n>& Proc) const
       case PLAYERID:
         Proc.write_Ci(r[0], Proc.P.my_num());
         break;
+      case CMDLINEARG:
+        {
+          size_t idx = Proc.read_Ci(r[1]);
+          auto& args = OnlineOptions::singleton.args;
+          if (idx < args.size())
+              Proc.write_Ci(r[0], args[idx]);
+          else
+            {
+              cerr << idx << "-th command-line argument not given" << endl;
+              exit(1);
+            }
+          break;
+        }
       // ***
       // TODO: read/write shared GF(2^n) data instructions
       // ***
@@ -1146,19 +1326,25 @@ inline void Instruction::execute(Processor<sint, sgf2n>& Proc) const
         break;
       case ACCEPTCLIENTCONNECTION:
       {
+        TimeScope _(Proc.client_timer);
         // get client connection at port number n + my_num())
         int client_handle = Proc.external_clients.get_client_connection(
             Proc.read_Ci(r[1]));
-        if (Proc.P.my_num() == 0)
         {
           octetStream os;
           os.store(int(sint::open_type::type_char()));
           sint::specification(os);
+          sint::clear::specification(os);
           os.Send(Proc.external_clients.get_socket(client_handle));
         }
         Proc.write_Ci(r[0], client_handle);
         break;
       }
+      case INITCLIENTCONNECTION:
+        Proc.write_Ci(r[0],
+            Proc.external_clients.init_client_connection(str,
+                Proc.read_Ci(r[1]), Proc.read_Ci(r[2])));
+        break;
       case CLOSECLIENTCONNECTION:
         Proc.external_clients.close_connection(Proc.read_Ci(r[0]));
         break;
@@ -1189,23 +1375,23 @@ inline void Instruction::execute(Processor<sint, sgf2n>& Proc) const
         break;
       case WRITEFILESHARE:
         // Write shares to file system
-        Proc.write_shares_to_file(Proc.read_Ci(r[0]), start);
-        break;
+        Proc.write_shares_to_file(Proc.read_Ci(r[0]), start, size);
+        return;
       case READFILESHARE:
         // Read shares from file system
-        Proc.read_shares_from_file(Proc.read_Ci(r[0]), r[1], start);
-        break;        
+        Proc.read_shares_from_file(Proc.read_Ci(r[0]), r[1], start, size);
+        return;
       case PUBINPUT:
         Proc.get_Cp_ref(r[0]) = Proc.template
             get_input<IntInput<typename sint::clear>>(
             Proc.public_input, Proc.public_input_filename, 0).items[0];
         break;
       case RAWOUTPUT:
-        Proc.read_Cp(r[0]).output(Proc.public_output, false);
+        Proc.read_Cp(r[0]).output(Proc.get_public_output(), false);
         break;
       case INTOUTPUT:
         if (n == -1 or n == Proc.P.my_num())
-          Integer(Proc.read_Ci(r[0])).output(Proc.binary_output, false);
+          Integer(Proc.read_Ci(r[0])).output(Proc.get_binary_output(), false);
         break;
       case FLOATOUTPUT:
         if (n == -1 or n == Proc.P.my_num())
@@ -1213,9 +1399,13 @@ inline void Instruction::execute(Processor<sint, sgf2n>& Proc) const
             double tmp = bigint::get_float(Proc.read_Cp(start[0] + i),
               Proc.read_Cp(start[1] + i), Proc.read_Cp(start[2] + i),
               Proc.read_Cp(start[3] + i)).get_d();
-            Proc.binary_output.write((char*) &tmp, sizeof(double));
+            Proc.get_binary_output().write((char*) &tmp, sizeof(double));
+            Proc.get_binary_output().flush();
           }
         break;
+      case FIXINPUT:
+        Proc.fixinput(*this);
+        return;
       case PREP:
         Procp.DataF.get(Proc.Procp.get_S(), r, start, size);
         return;
@@ -1253,6 +1443,26 @@ inline void Instruction::execute(Processor<sint, sgf2n>& Proc) const
 template<class sint, class sgf2n>
 void Program::execute(Processor<sint, sgf2n>& Proc) const
 {
+  if (OnlineOptions::singleton.has_option("throw_exceptions"))
+    execute_with_errors(Proc);
+  else
+    {
+      try
+      {
+          execute_with_errors(Proc);
+      }
+      catch (exception& e)
+      {
+          cerr << "Fatal error at " << name << ":" << Proc.last_PC << " ("
+              << p[Proc.last_PC].get_name() << "): " << e.what() << endl;
+          exit(1);
+      }
+    }
+}
+
+template<class sint, class sgf2n>
+void Program::execute_with_errors(Processor<sint, sgf2n>& Proc) const
+{
   unsigned int size = p.size();
   Proc.PC=0;
 
@@ -1266,6 +1476,7 @@ void Program::execute(Processor<sint, sgf2n>& Proc) const
 
   while (Proc.PC<size)
     {
+      Proc.last_PC = Proc.PC;
       auto& instruction = p[Proc.PC];
       auto& r = instruction.r;
       auto& n = instruction.n;
@@ -1274,11 +1485,17 @@ void Program::execute(Processor<sint, sgf2n>& Proc) const
       (void) start;
 
 #ifdef COUNT_INSTRUCTIONS
+#ifdef TIME_INSTRUCTIONS
+      RunningTimer timer;
+      int PC = Proc.PC;
+#else
       Proc.stats[p[Proc.PC].get_opcode()]++;
+#endif
 #endif
 
 #ifdef OUTPUT_INSTRUCTIONS
-      cerr << instruction << endl;
+      if (OnlineOptions::singleton.has_option("output_instructions"))
+          cerr << instruction << endl;
 #endif
 
       Proc.PC++;
@@ -1303,6 +1520,10 @@ void Program::execute(Processor<sint, sgf2n>& Proc) const
         default:
           instruction.execute(Proc);
         }
+
+#if defined(COUNT_INSTRUCTIONS) and defined(TIME_INSTRUCTIONS)
+      Proc.stats[p[PC].get_opcode()] += timer.elapsed() * 1e9;
+#endif
     }
 }
 
@@ -1313,8 +1534,8 @@ void Instruction::print(SwitchableOutput& out, T* v, T* p, T* s, T* z, T* nan) c
     out << "[";
   for (int i = 0; i < size; i++)
     {
-      if (p == 0)
-        out << v[i];
+      if (p == 0 or (*p == 0 and s == 0))
+        out.signed_output(v[i]);
       else if (s == 0)
         out << bigint::get_float(v[i], p[i], {}, {});
       else
@@ -1329,6 +1550,17 @@ void Instruction::print(SwitchableOutput& out, T* v, T* p, T* s, T* z, T* nan) c
     }
   if (size > 1)
     out << "]";
+}
+
+template<class T>
+typename T::clear Instruction::sanitize(SubProcessor<T>& proc, int reg) const
+{
+  if (not T::real_shares(proc.P))
+    return 1;
+  auto& res = proc.get_C_ref(reg);
+  if (res.is_zero())
+    throw Processor_Error("Division by zero from register");
+  return res;
 }
 
 #endif

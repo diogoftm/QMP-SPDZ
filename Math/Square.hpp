@@ -4,6 +4,8 @@
  */
 
 #include "Math/Square.h"
+#include "Math/BitVec.h"
+#include "Math/Zp_Data.h"
 
 template<class U>
 Square<U>& Square<U>::sub(const Square<U>& other)
@@ -29,6 +31,25 @@ Square<U>& Square<U>::sub(const void* other)
     for (int i = 0; i < U::length(); i++)
         rows[i] -= value;
     return *this;
+}
+
+template<class U>
+void Square<U>::bit_sub(const BitVector& bits, int start)
+{
+    for (int i = 0; i < U::length(); i++)
+    {
+        rows[i] -= bits.get_bit(start + i);
+    }
+}
+
+template<>
+inline
+void Square<BitVec>::bit_sub(const BitVector& bits, int start)
+{
+    for (int i = 0; i < BitVec::length(); i++)
+    {
+        rows[i] -= bits.get_portion<BitVec>(start + i);
+    }
 }
 
 template<class U>
@@ -63,7 +84,8 @@ void Square<U>::to(U& result)
 template<class U>
 void Square<U>::to(U& result, true_type)
 {
-    int L = U::get_ZpD().get_t();
+    int t = U::get_ZpD().get_t();
+    const int L = MAX_MOD_SZ;
     mp_limb_t product[2 * L], sum[2 * L], tmp[L][2 * L];
     memset(tmp, 0, sizeof(tmp));
     memset(sum, 0, sizeof(sum));
@@ -73,10 +95,10 @@ void Square<U>::to(U& result, true_type)
         if (i % 64 == 0)
             memcpy(product, tmp[i/64], sizeof(product));
         else
-            mpn_lshift(product, tmp[i/64], 2 * L, i % 64);
-        mpn_add_n(sum, product, sum, 2 * L);
+            mpn_lshift(product, tmp[i/64], 2 * t, i % 64);
+        mpn_add_n(sum, product, sum, 2 * t);
     }
     mp_limb_t q[2 * L], ans[2 * L];
-    mpn_tdiv_qr(q, ans, 0, sum, 2 * L, U::get_ZpD().get_prA(), L);
+    mpn_tdiv_qr(q, ans, 0, sum, 2 * t, U::get_ZpD().get_prA(), t);
     result.assign((void*) ans);
 }

@@ -27,6 +27,13 @@ void SPDZ_Data_Setup_Primes(bigint& p,int lgp,int& idx,int& m)
   cerr << "Setting up parameters" << endl;
 #endif
 
+  m = default_m(lgp, idx);
+  generate_prime(p, lgp, m);
+}
+
+int default_m(int& lgp, int& idx)
+{
+  int m;
   switch (lgp)
     { case -1:
         m=16;
@@ -56,25 +63,22 @@ void SPDZ_Data_Setup_Primes(bigint& p,int lgp,int& idx,int& m)
       default:
         m=1;
         idx=0;
-#ifdef VERBOSE
-        cerr << "no precomputed parameters, trying anyway" << endl;
-#endif
         break;
     }
 #ifdef VERBOSE
   cerr << "m = " << m << endl;
 #endif
-  generate_prime(p, lgp, m);
+  return m;
 }
 
-bigint generate_prime(int lgp, int m)
+bigint generate_prime(int lgp, int m, bool force_degree)
 {
   bigint p;
-  generate_prime(p, lgp, m);
+  generate_prime(p, lgp, m, force_degree);
   return p;
 }
 
-void generate_prime(bigint& p, int lgp, int m)
+void generate_prime(bigint& p, int lgp, int m, bool force_degree)
 {
   if (OnlineOptions::singleton.prime > 0)
     {
@@ -94,6 +98,10 @@ void generate_prime(bigint& p, int lgp, int m)
       else
           return;
     }
+
+  int idx;
+  if (not force_degree)
+    m = max(m, default_m(lgp, idx));
 
   bigint u;
   int ex;
@@ -129,7 +137,7 @@ void write_online_setup(string dirname, const bigint& p)
   if (mkdir_p(ss.str().c_str()) == -1)
   {
     cerr << "mkdir_p(" << ss.str() << ") failed\n";
-    throw file_error(ss.str());
+    throw file_error("cannot create " + dirname);
   }
 
   // Output the data
@@ -147,19 +155,19 @@ void check_setup(string dir, bigint pr)
   string filename = dir + "Params-Data";
   ifstream(filename) >> p;
   if (p == 0)
-    throw runtime_error("no modulus in " + filename);
+    throw setup_error("no modulus in " + filename);
   if (p != pr)
-    throw runtime_error("wrong modulus in " + filename);
+    throw setup_error("wrong modulus in " + filename);
 }
 
 string get_prep_sub_dir(const string& prep_dir, int nparties, int log2mod,
-        const string& type_short)
+        const string& type_short, bool create)
 {
   string res = prep_dir + "/" + to_string(nparties) + "-" + type_short;
   if (log2mod > 1)
     res += "-" + to_string(log2mod);
   res += "/";
-  if (mkdir_p(res.c_str()) < 0)
-    throw file_error(res);
+  if (create and mkdir_p(res.c_str()) < 0)
+    throw file_error("cannot create " + res);
   return res;
 }

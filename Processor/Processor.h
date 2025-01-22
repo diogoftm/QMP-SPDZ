@@ -20,18 +20,32 @@
 #include "Tools/CheckVector.h"
 #include "GC/Processor.h"
 #include "GC/ShareThread.h"
+#include "Protocols/SecureShuffle.h"
+#include "Tools/NamedStats.h"
 
 class Program;
+
+// synchronize in asymmetric protocols
+template<class T>
+void sync(vector<Integer>& x, Player& P);
 
 template <class T>
 class SubProcessor
 {
-  CheckVector<typename T::clear> C;
-  CheckVector<T> S;
+  StackedVector<typename T::clear> C;
+  StackedVector<T> S;
 
   DataPositions bit_usage;
+  NamedStats stats;
 
   void resize(size_t size)       { C.resize(size); S.resize(size); }
+
+  void matmulsm_prep(int ii, int j, const MemoryPart<T>& source,
+      const vector<int>& dim, size_t a, size_t b);
+  void matmulsm_finalize(int i, int j, const vector<int>& dim,
+      typename vector<T>::iterator C);
+
+  void maybe_check();
 
   template<class sint, class sgf2n> friend class Processor;
   template<class U> friend class SPDZ;
@@ -39,6 +53,8 @@ class SubProcessor
   template<class U> friend class Beaver;
 
   typedef typename T::bit_type::part_type BT;
+
+  typedef typename T::Protocol::Shuffler::store_type ShuffleStore;
 
 public:
   ArithmeticProcessor* Proc;
@@ -52,34 +68,48 @@ public:
   typename BT::LivePrep bit_prep;
   vector<typename BT::LivePrep*> personal_bit_preps;
 
+  typename T::Protocol::Shuffler shuffler;
+
   SubProcessor(ArithmeticProcessor& Proc, typename T::MAC_Check& MC,
       Preprocessing<T>& DataF, Player& P);
   SubProcessor(typename T::MAC_Check& MC, Preprocessing<T>& DataF, Player& P,
       ArithmeticProcessor* Proc = 0);
   ~SubProcessor();
 
-  // Access to PO (via calls to POpen start/stop)
-  void POpen(const vector<int>& reg,const Player& P,int size);
+  void check();
 
-  void muls(const vector<int>& reg, int size);
+  // Access to PO (via calls to POpen start/stop)
+  void POpen(const Instruction& inst);
+
+  void muls(const vector<int>& reg);
   void mulrs(const vector<int>& reg);
   void dotprods(const vector<int>& reg, int size);
-  void matmuls(const vector<T>& source, const Instruction& instruction, size_t a,
-      size_t b);
-  void matmulsm(const CheckVector<T>& source, const Instruction& instruction, size_t a,
-      size_t b);
+  void matmuls(const StackedVector<T>& source, const Instruction& instruction);
+  void matmulsm(const MemoryPart<T>& source, const vector<int>& args);
+
+  void matmulsm_finalize_batch(vector<int>::const_iterator startMatmul, int startI, int startJ,
+                               vector<int>::const_iterator endMatmul,
+                               int endI, int endJ);
+
   void conv2ds(const Instruction& instruction);
+
+  void secure_shuffle(const Instruction& instruction);
+  size_t generate_secure_shuffle(const Instruction& instruction,
+      ShuffleStore& shuffle_store);
+  void apply_shuffle(const Instruction& instruction, int handle,
+          ShuffleStore& shuffle_store);
+  void inverse_permutation(const Instruction& instruction);
 
   void input_personal(const vector<int>& args);
   void send_personal(const vector<int>& args);
   void private_output(const vector<int>& args);
 
-  CheckVector<T>& get_S()
+  StackedVector<T>& get_S()
   {
     return S;
   }
 
-  CheckVector<typename T::clear>& get_C()
+  StackedVector<typename T::clear>& get_C()
   {
     return C;
   }
@@ -93,12 +123,21 @@ public:
   {
     return C[i];
   }
+
+  void inverse_permutation(const Instruction &instruction, int handle);
+
+  void push_stack();
+  void push_args(const vector<int>& args);
+  void pop_stack(const vector<int>& results);
 };
 
 class ArithmeticProcessor : public ProcessorBase
 {
 protected:
-  CheckVector<long> Ci;
+  StackedVector<Integer> Ci;
+
+  ofstream public_output;
+  ofstream binary_output;
 
 public:
   int thread_num;
@@ -108,11 +147,11 @@ public:
 
   string private_input_filename;
   string public_input_filename;
+  string binary_input_filename;
 
   ifstream private_input;
   ifstream public_input;
-  ofstream public_output;
-  ofstream binary_output;
+  ifstream binary_input;
 
   int sent, rounds;
 
@@ -127,6 +166,10 @@ public:
   ArithmeticProcessor(OnlineOptions opts, int thread_num) : thread_num(thread_num),
           sent(0), rounds(0), opts(opts) {}
 
+  virtual ~ArithmeticProcessor()
+  {
+  }
+
   bool use_stdin()
   {
     return thread_num == 0 and opts.interactive;
@@ -137,14 +180,23 @@ public:
     return thread_num;
   }
 
-  const long& read_Ci(size_t i) const
-    { return Ci[i]; }
-  long& get_Ci_ref(size_t i)
+  long read_Ci(size_t i) const
+    { return Ci[i].get(); }
+  Integer& get_Ci_ref(size_t i)
     { return Ci[i]; }
   void write_Ci(size_t i, const long& x)
     { Ci[i]=x; }
-  CheckVector<long>& get_Ci()
+  StackedVector<Integer>& get_Ci()
     { return Ci; }
+
+  virtual ofstream& get_public_output()
+  {
+    throw not_implemented();
+  }
+  virtual ofstream& get_binary_output()
+  {
+    throw not_implemented();
+  }
 
   void shuffle(const Instruction& instruction);
   void bitdecint(const Instruction& instruction);
@@ -173,11 +225,14 @@ class Processor : public ArithmeticProcessor
   SubProcessor<sgf2n> Proc2;
   SubProcessor<sint>  Procp;
 
-  unsigned int PC;
+  unsigned int PC, last_PC;
   TempVars<sint, sgf2n> temp;
 
-  ExternalClients external_clients;
+  ExternalClients& external_clients;
   Binary_File_IO binary_file_io;
+
+  CommStats client_stats;
+  Timer& client_timer;
 
   void reset(const Program& program,int arg); // Reset the state of the processor
   string get_filename(const char* basename, bool use_number);
@@ -236,10 +291,22 @@ class Processor : public ArithmeticProcessor
       int size, bool send_macs);
 
   // Read and write secret numeric data to file (name hardcoded at present)
-  void read_shares_from_file(int start_file_pos, int end_file_pos_register, const vector<int>& data_registers);
-  void write_shares_to_file(long start_pos, const vector<int>& data_registers);
+  void read_shares_from_file(long start_file_pos, int end_file_pos_register,
+      const vector<int>& data_registers, size_t vector_size);
+  void write_shares_to_file(long start_pos, const vector<int>& data_registers,
+      size_t vector_size);
   
   cint get_inverse2(unsigned m);
+
+  void fixinput(const Instruction& instruction);
+
+  // synchronize in asymmetric protocols
+  long sync(long x) const;
+
+  ofstream& get_public_output();
+  ofstream& get_binary_output();
+
+  void call_tape(int tape_number, int arg, const vector<int>& results);
 
   private:
 

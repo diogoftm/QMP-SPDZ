@@ -16,6 +16,7 @@ using namespace std;
 #include "Math/Integer.h"
 #include "Processor/ProcessorBase.h"
 #include "Processor/Instruction.h"
+#include "Tools/CheckVector.h"
 
 namespace GC
 {
@@ -38,9 +39,9 @@ public:
     // rough measure for the memory usage
     size_t complexity;
 
-    Memory<T> S;
-    Memory<Clear> C;
-    Memory<Integer> I;
+    StackedVector<T> S;
+    StackedVector<Clear> C;
+    StackedVector<Integer> I;
 
     Timer xor_timer;
 
@@ -78,8 +79,8 @@ public:
     template<class U>
     void store_clear_in_dynamic(const vector<int>& args, U& dynamic_memory);
 
-    template<class U>
-    void mem_op(int n, Memory<U>& dest, const Memory<U>& source,
+    template<class U, class V>
+    void mem_op(int n, U& dest, const V& source,
             Integer dest_address, Integer source_address);
 
     void xors(const vector<int>& args);
@@ -87,21 +88,26 @@ public:
     void xorc(const ::BaseInstruction& instruction);
     void nots(const ::BaseInstruction& instruction);
     void notcb(const ::BaseInstruction& instruction);
+    void movsb(const ::BaseInstruction& instruction);
     void andm(const ::BaseInstruction& instruction);
     void and_(const vector<int>& args, bool repeat);
     void andrs(const vector<int>& args) { and_(args, true); }
     void ands(const vector<int>& args) { and_(args, false); }
+    void andrsvec(const vector<int>& args);
 
     void input(const vector<int>& args);
     void inputb(typename T::Input& input, ProcessorBase& input_processor,
             const vector<int>& args, int my_num);
     void inputbvec(typename T::Input& input, ProcessorBase& input_processor,
-            const vector<int>& args, int my_num);
+            const vector<int>& args, PlayerBase& P);
 
     void reveal(const vector<int>& args);
 
     template<int = 0>
     void convcbit2s(const BaseInstruction& instruction);
+
+    void convcbitvec(const BaseInstruction& instruction, StackedVector<Integer>& Ci,
+            Player* P);
 
     void print_reg(int reg, int n, int size);
     void print_reg_plain(Clear& value);
@@ -110,6 +116,15 @@ public:
     void print_str(int n);
     void print_float(const vector<int>& args);
     void print_float_prec(int n);
+
+    void incint(const BaseInstruction& instruction);
+
+    void push_stack();
+    void push_args(const vector<int>& args);
+    void pop_stack(const vector<int>& results);
+
+    template<class U>
+    void call_tape(const BaseInstruction& instruction, U& dynamic_memory);
 };
 
 template <class T>

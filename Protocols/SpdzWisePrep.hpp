@@ -24,24 +24,27 @@ void SpdzWisePrep<T>::buffer_triples()
     assert(this->proc != 0);
     this->protocol->init_mul();
     generate_triples_initialized(this->triples,
-            OnlineOptions::singleton.batch_size, this->protocol);
+            BaseMachine::batch_size<T>(DATA_TRIPLE, this->buffer_size),
+            this->protocol);
 }
 
 template<class T>
-template<int X, int L>
-void SpdzWisePrep<T>::buffer_bits(MaliciousRep3Share<gfp_<X, L>>)
+void SpdzWisePrep<T>::buffer_bits(false_type, true_type, false_type)
 {
     MaliciousRingPrep<T>::buffer_bits();
 }
 
-template<>
-void SpdzWisePrep<SpdzWiseShare<MaliciousRep3Share<gf2n>>>::buffer_bits()
+template<class T>
+void SpdzWisePrep<T>::buffer_bits(false_type, false_type, true_type)
 {
     typedef MaliciousRep3Share<gf2n> part_type;
     vector<typename part_type::Honest> bits;
     ProtocolSet<typename part_type::Honest> set(this->proc->P, {});
     auto& protocol = set.protocol;
     auto& prep = set.preprocessing;
+    int buffer_size = BaseMachine::batch_size<
+            SpdzWiseShare<MaliciousRep3Share<gf2n>>>(DATA_BIT,
+            this->buffer_size);
     for (int i = 0; i < buffer_size; i++)
         bits.push_back(prep.get_bit());
     protocol.init_mul();
@@ -63,7 +66,9 @@ void buffer_bits_from_squares_in_ring(vector<SpdzWiseRingShare<K, S>>& bits,
     SquarePrep<BitShare> prep(usage);
     SubProcessor<BitShare> bit_proc(MC, prep, proc->P, proc->Proc);
     prep.set_proc(&bit_proc);
-    bits_from_square_in_ring(bits, OnlineOptions::singleton.batch_size, &prep);
+    bits_from_square_in_ring(bits,
+            BaseMachine::batch_size<SpdzWiseRingShare<K, S>>(DATA_BIT),
+            &prep);
 }
 
 template<class T>
@@ -78,19 +83,24 @@ void SpdzWiseRingPrep<T>::buffer_bits()
 template<class T>
 void SpdzWisePrep<T>::buffer_bits()
 {
-    buffer_bits(typename T::share_type());
+    buffer_bits(T::share_type::variable_players, T::clear::prime_field,
+            T::clear::characteristic_two);
 }
 
 template<class T>
-template<int X, int L>
-void SpdzWisePrep<T>::buffer_bits(MaliciousShamirShare<gfp_<X, L>>)
+void SpdzWisePrep<T>::buffer_bits(true_type, true_type, false_type)
 {
     buffer_bits_from_squares(*this);
 }
 
 template<class T>
-template<class U>
-void SpdzWisePrep<T>::buffer_bits(U)
+void SpdzWisePrep<T>::buffer_bits(false_type, false_type, false_type)
+{
+    super::buffer_bits();
+}
+
+template<class T>
+void SpdzWisePrep<T>::buffer_bits(true_type, false_type, true_type)
 {
     super::buffer_bits();
 }
@@ -100,7 +110,8 @@ void SpdzWisePrep<T>::buffer_inputs(int player)
 {
     assert(this->proc != 0);
     assert(this->protocol != 0);
-    vector<T> rs(OnlineOptions::singleton.batch_size);
+    vector<T> rs(BaseMachine::input_batch_size<T>(player,
+            this->buffer_size));
     auto& P = this->proc->P;
     this->inputs.resize(P.num_players());
     this->protocol->init_mul();

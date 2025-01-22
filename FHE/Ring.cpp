@@ -2,6 +2,13 @@
 #include "Ring.h"
 #include "Tools/Exceptions.h"
 
+Ring::Ring(int m) :
+    mm(0), phim(0)
+{
+  if (m != 0)
+    init(*this, m);
+}
+
 void Ring::pack(octetStream& o) const
 {
   o.store(mm);
@@ -24,7 +31,7 @@ void Ring::unpack(octetStream& o)
       o.get(pi_inv);
       o.get(poly);
     }
-  else
+  else if (mm != 0)
     init(*this, mm);
 }
 

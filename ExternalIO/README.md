@@ -1,20 +1,24 @@
-The ExternalIO directory contains an example of managing I/O between external client processes and SPDZ parties running SPDZ engines. These instructions assume that SPDZ has been built as per the [project readme](../README.md).
+The ExternalIO directory contains an example of managing I/O between
+external client processes and parties running MP-SPDZ engines. These
+instructions assume that MP-SPDZ has been built as per the [project
+readme](../README.md).
 
 ## Working Examples
 
-[bankers-bonus-client.cpp](./bankers-bonus-client.cpp) acts as a
+[bankers-bonus-client.cpp](../ExternalIO/bankers-bonus-client.cpp) and
+[bankers-bonus-client.py](../ExternalIO/bankers-bonus-client.py) act as a
 client to [bankers_bonus.mpc](../Programs/Source/bankers_bonus.mpc)
 and demonstrates sending input and receiving output as described by
 [Damgård et al.](https://eprint.iacr.org/2015/1006) The computation
 allows up to eight clients to input a number and computes the client
-with the largest input. You can run it as follows from the main
+with the largest input. You can run the C++ code as follows from the main
 directory:
 ```
 make bankers-bonus-client.x
 ./compile.py bankers_bonus 1
 Scripts/setup-ssl.sh <nparties>
 Scripts/setup-clients.sh 3
-Scripts/<protocol>.sh bankers_bonus-1 &
+PLAYERS=<nparties> Scripts/<protocol>.sh bankers_bonus-1 &
 ./bankers-bonus-client.x 0 <nparties> 100 0 &
 ./bankers-bonus-client.x 1 <nparties> 200 0 &
 ./bankers-bonus-client.x 2 <nparties> 50 1
@@ -29,6 +33,11 @@ not the number of clients, and `<protocol>` can be the name of
 protocol script. The setup scripts generate the necessary SSL
 certificates and keys. Therefore, if you run the computation on
 different hosts, you will have to distribute the `*.pem` files.
+
+For the Python client, make sure to install
+[gmpy2](https://pypi.org/project/gmpy2), and run
+`ExternalIO/bankers-bonus-client.py` instead of
+`bankers-bonus-client.x`.
 
 ## I/O MPC Instructions
 
@@ -50,5 +59,5 @@ Only the `sint` methods used in the example are documented here, equivalent meth
 
 The example uses the `Client` class implemented in
 `ExternalIO/Client.hpp` to handle the communication, see
-https://mp-spdz.readthedocs.io/en/latest/io.html#reference for
+[this reference](https://mp-spdz.readthedocs.io/en/latest/io.html#reference) for
 documentation.

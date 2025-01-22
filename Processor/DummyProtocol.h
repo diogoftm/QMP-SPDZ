@@ -12,6 +12,7 @@ using namespace std;
 #include "Math/BitVec.h"
 #include "Data_Files.h"
 #include "Protocols/Replicated.h"
+#include "Protocols/ReplicatedPrep.h"
 #include "Protocols/MAC_Check_Base.h"
 #include "Processor/Input.h"
 
@@ -109,9 +110,11 @@ public:
 };
 
 template<class T>
-class DummyLivePrep : public Preprocessing<T>
+class DummyLivePrep : public BufferPrep<T>
 {
 public:
+    static const bool homomorphic = true;
+
     static void basic_setup(Player&)
     {
     }
@@ -125,17 +128,22 @@ public:
                 "live preprocessing not implemented for " + T::type_string());
     }
 
+    static bool bits_from_dabits()
+    {
+        return false;
+    }
+
     DummyLivePrep(DataPositions& usage, GC::ShareThread<T>&) :
-            Preprocessing<T>(usage)
+            BufferPrep<T>(usage)
     {
     }
     DummyLivePrep(DataPositions& usage, bool = true) :
-            Preprocessing<T>(usage)
+            BufferPrep<T>(usage)
     {
     }
 
     DummyLivePrep(SubProcessor<T>*, DataPositions& usage) :
-            Preprocessing<T>(usage)
+            BufferPrep<T>(usage)
     {
     }
 
@@ -158,7 +166,7 @@ public:
     {
         fail();
     }
-    void get_no_count(vector<T>&, DataTag, const vector<int>&, int)
+    void get_no_count(StackedVector<T>&, DataTag, const vector<int>&, int)
     {
         fail();
     }

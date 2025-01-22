@@ -32,8 +32,8 @@ Spdz2kPrep<T>::~Spdz2kPrep()
 {
     if (bit_prep != 0)
     {
-        delete bit_prep;
         delete bit_proc;
+        delete bit_prep;
         delete bit_MC;
     }
 }
@@ -51,7 +51,6 @@ void Spdz2kPrep<T>::set_protocol(typename T::Protocol& protocol)
     bit_prep->params.amplify = false;
     bit_proc = new SubProcessor<BitShare>(*bit_MC, *bit_prep, proc->P);
     bit_MC->set_prep(*bit_prep);
-    this->proc->MC.set_prep(*this);
 }
 
 template<class T>
@@ -86,6 +85,7 @@ void Spdz2kPrep<T>::buffer_bits()
 template<class T, class U>
 void bits_from_square_in_ring(vector<T>& bits, int buffer_size, U* bit_prep)
 {
+    buffer_size = BaseMachine::batch_size<T>(DATA_BIT, buffer_size);
     typedef typename U::share_type BitShare;
     typedef typename BitShare::open_type open_type;
     assert(bit_prep != 0);
@@ -94,7 +94,7 @@ void bits_from_square_in_ring(vector<T>& bits, int buffer_size, U* bit_prep)
     auto bit_MC = &bit_proc->MC;
     vector<BitShare> squares, random_shares;
     auto one = BitShare::constant(1, bit_proc->P.my_num(), bit_MC->get_alphai());
-    bit_prep->buffer_size = buffer_size;
+    BufferScope scope(*bit_prep, buffer_size);
     for (int i = 0; i < buffer_size; i++)
     {
         BitShare a, a2;
@@ -130,10 +130,7 @@ void Spdz2kPrep<T>::buffer_dabits(ThreadQueues* queues)
 {
     assert(this->proc != 0);
     vector<dabit<T>> check_dabits;
-    DabitSacrifice<T> dabit_sacrifice;
-    int buffer_size = OnlineOptions::singleton.batch_size;
-    if (queues)
-        buffer_size *= queues->size();
+    int buffer_size = BaseMachine::batch_size<T>(DATA_DABIT, this->buffer_size);
     this->buffer_dabits_from_bits_without_check(check_dabits,
             dabit_sacrifice.minimum_n_inputs(buffer_size), queues);
     dabit_sacrifice.sacrifice_without_bit_check(this->dabits, check_dabits,
@@ -172,11 +169,15 @@ void MaliciousRingPrep<T>::buffer_edabits_from_personal(bool strict, int n_bits,
     typedef typename T::bit_type::part_type bit_type;
     vector<vector<bit_type>> bits;
     vector<T> sums;
-#ifdef VERBOSE_EDA
-    cerr << "Generate edaBits of length " << n_bits << " to sacrifice" << endl;
+
+    bool verbose = OnlineOptions::singleton.has_option("verbose_eda");
     Timer timer;
-    timer.start();
-#endif
+    if (verbose)
+    {
+        cerr << "Generate edaBits of length " << n_bits << " to sacrifice" << endl;
+        timer.start();
+    }
+
     auto &party = GC::ShareThread<typename T::bit_type>::s();
     SubProcessor<bit_type> bit_proc(party.MC->get_part_MC(),
             this->proc->bit_prep, this->proc->P);
@@ -188,6 +189,7 @@ void MaliciousRingPrep<T>::buffer_edabits_from_personal(bool strict, int n_bits,
         vector<vector<bit_type>> tmp_bits;
         this->buffer_personal_edabits(n_bits, tmp, tmp_bits, bit_proc,
                 i, strict, queues);
+        assert(not tmp.empty());
         sums.resize(tmp.size());
         for (size_t j = 0; j < tmp.size(); j++)
             sums[j] += tmp[j];
@@ -198,12 +200,16 @@ void MaliciousRingPrep<T>::buffer_edabits_from_personal(bool strict, int n_bits,
     BitAdder().add(bits, player_bits, bit_proc, bit_type::default_length,
             queues);
     player_bits.clear();
-#ifdef VERBOSE_EDA
-    cerr << "Adding edaBits took " << add_timer.elapsed() << " seconds" << endl;
-    cerr << "Done with generating edaBits after " << timer.elapsed()
-            << " seconds" << endl;
+
+    if (verbose)
+    {
+        cerr << "Adding edaBits took " << add_timer.elapsed() << " seconds"
+                << endl;
+        cerr << "Done with generating edaBits after " << timer.elapsed()
+                << " seconds" << endl;
+    }
+
     RunningTimer finalize_timer;
-#endif
     vector<edabit<T>> checked;
     for (size_t i = 0; i < sums.size(); i++)
     {
@@ -228,9 +234,9 @@ void MaliciousRingPrep<T>::buffer_edabits_from_personal(bool strict, int n_bits,
         else
             output.back().push_back(x);
     }
-#ifdef VERBOSE_EDA
-    cerr << "Finalizing took " << finalize_timer.elapsed() << " seconds" << endl;
-#endif
+
+    if (verbose)
+        cerr << "Finalizing took " << finalize_timer.elapsed() << " seconds" << endl;
 }
 
 template<class T>

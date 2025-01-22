@@ -2,6 +2,7 @@ from collections import defaultdict
 
 REG_MAX = 2 ** 32
 USER_MEM = 8192
+MEM_MAX = 2 ** 64
 
 P_VALUES = { 32: 2147565569, \
              64: 9223372036855103489, \

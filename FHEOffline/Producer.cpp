@@ -13,6 +13,8 @@
 #include "SimpleMachine.h"
 #include "Tools/mkpath.h"
 
+#include "Protocols/Share.hpp"
+
 template<class FD>
 Producer<FD>::Producer(int output_thread, bool write_output) :
     n_slots(0), output_thread(output_thread), write_output(write_output),
@@ -577,7 +579,7 @@ void InputProducer<FD>::run(const Player& P, const FHE_PK& pk,
     for (int j = min; j < max; j++)
     {
         AddableVector<Ciphertext> C;
-        vector<Plaintext_<FD>> m(EC.machine->sec, FieldD);
+        vector<Plaintext_<FD>> m(personal_EC.proof.U, FieldD);
         if (j == P.my_num())
         {
             for (auto& x : m)

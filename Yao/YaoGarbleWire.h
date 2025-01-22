@@ -30,8 +30,6 @@ public:
 
 	static string name() { return "YaoGarbleWire"; }
 
-	static YaoGarbleWire new_reg() { return {}; }
-
 	static void andrs(GC::Processor<GC::Secret<YaoGarbleWire>>& processor,
 			const vector<int>& args)
 	{
@@ -51,7 +49,7 @@ public:
 	static void and_singlethread(
 			GC::Processor<GC::Secret<YaoGarbleWire>>& processor,
 			const vector<int>& args, bool repeat);
-	static void and_(GC::Memory<GC::Secret<YaoGarbleWire>>& S,
+	static void and_(StackedVector<GC::Secret<YaoGarbleWire>>& S,
 			const vector<int>& args, size_t start, size_t end,
 			size_t total_ands, YaoGate* gate, long& counter, PRNG& prng,
 			map<string, Timer>& timers, bool repeat, YaoGarbler& garbler);
@@ -67,6 +65,8 @@ public:
 
 	static void convcbit2s(GC::Processor<whole_type>& processor,
 			const BaseInstruction& instruction);
+
+	static void run_tapes(const vector<int>& args);
 
 	void randomize(PRNG& prng);
 	void set(Key key, bool mask);

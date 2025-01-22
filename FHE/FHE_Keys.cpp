@@ -2,13 +2,17 @@
 #include "FHE_Keys.h"
 #include "Ciphertext.h"
 #include "P2Data.h"
-#include "PPData.h"
 #include "FFT_Data.h"
 
 #include "Math/modp.hpp"
 
 
 FHE_SK::FHE_SK(const FHE_PK& pk) : FHE_SK(pk.get_params(), pk.p())
+{
+}
+
+FHE_SK::FHE_SK(const FHE_Params& pms) :
+    FHE_SK(pms, pms.get_plaintext_modulus())
 {
 }
 
@@ -37,6 +41,11 @@ void KeyGen(FHE_PK& PK,FHE_SK& SK,PRNG& G)
   PK.KeyGen(sk, G);
 }
 
+
+FHE_PK::FHE_PK(const FHE_Params& pms) :
+    FHE_PK(pms, pms.get_plaintext_modulus())
+{
+}
 
 Rq_Element FHE_PK::sample_secret_key(PRNG& G)
 {
@@ -85,8 +94,8 @@ void FHE_PK::partial_key_gen(const Rq_Element& sk, const Rq_Element& a, PRNG& G,
       add(PK.Sw_b,PK.Sw_b,es);
 
       // bs=bs-p1*s^2
-      Rq_Element s2;
-      mul(s2,sk,sk);    // Mult at level 0
+      // Mult at level 0
+      auto s2 = sk * sk;
       s2.mul_by_p1();         // This raises back to level 1
       sub(PK.Sw_b,PK.Sw_b,s2);
     }
@@ -146,17 +155,12 @@ void FHE_PK::quasi_encrypt(Ciphertext& c,
   if (&rc.get_params()!=params) { throw params_mismatch(); }
   assert(pr != 0);
 
-  Rq_Element ed,edd,c0,c1,aa;
-
   // c1=a0*u+p*v
-  mul(aa,a0,rc.u());
-  mul(ed,rc.v(),pr);
-  add(c1,aa,ed);
+  auto c1 = a0 * rc.u() + rc.v() * pr;
 
   // c0 = b0 * u + p * w + mess
-  mul(c0,b0,rc.u());
-  mul(edd,rc.w(),pr);
-  add(edd,edd,mess);
+  auto c0 = b0 * rc.u();
+  auto edd = rc.w() * pr + mess;
   if (params->n_mults() == 0)
     edd.change_rep(evaluation);
   else
@@ -180,30 +184,46 @@ template<class FD>
 Ciphertext FHE_PK::encrypt(
     const Plaintext<typename FD::T, FD, typename FD::S>& mess) const
 {
+  return encrypt(Rq_Element(*params, mess));
+}
+
+Ciphertext FHE_PK::encrypt(const Rq_Element& mess) const
+{
   Random_Coins rc(*params);
   PRNG G;
   G.ReSeed();
   rc.generate(G);
-  return encrypt(mess, rc);
+  Ciphertext res(*params);
+  quasi_encrypt(res, mess, rc);
+  return res;
 }
 
 
 template<class T, class FD, class S>
 void FHE_SK::decrypt(Plaintext<T,FD,S>& mess,const Ciphertext& c) const
 {
-  if (&c.get_params()!=params)  { throw params_mismatch(); }
   if (T::characteristic_two ^ (pr == 2))
     throw pr_mismatch();
 
-  Rq_Element ans;
-
-  mul(ans,c.c1(),sk);
-  sub(ans,c.c0(),ans);
-  ans.change_rep(polynomial);
+  Rq_Element ans = quasi_decrypt(c);
   mess.set_poly_mod(ans.get_iterator(), ans.get_modulus());
 }
 
+Rq_Element FHE_SK::quasi_decrypt(const Ciphertext& c) const
+{
+  if (&c.get_params()!=params)  { throw params_mismatch(); }
 
+  auto ans = c.c0() - c.c1() * sk;
+  ans.change_rep(polynomial);
+  return ans;
+}
+
+
+
+Plaintext_<FFT_Data> FHE_SK::decrypt(const Ciphertext& c)
+{
+  return decrypt(c, params->get_plaintext_field_data<FFT_Data>());
+}
 
 template<class FD>
 Plaintext<typename FD::T, FD, typename FD::S> FHE_SK::decrypt(const Ciphertext& c, const FD& FieldD)
@@ -239,8 +259,7 @@ void FHE_SK::dist_decrypt_1(vector<bigint>& vv,const Ciphertext& ctx,int player_
   Ciphertext cc=ctx; cc.Scale(pr);
 
   // First do the basic decryption
-  Rq_Element dec_sh;
-  mul(dec_sh,cc.c1(),sk);
+  auto dec_sh = cc.c1() * sk;
   if (player_number==0)
     { sub(dec_sh,cc.c0(),dec_sh); }
   else
@@ -299,12 +318,12 @@ void FHE_PK::unpack(octetStream& o)
   o.consume((octet*) tag, 8);
   if (memcmp(tag, "PKPKPKPK", 8))
     throw runtime_error("invalid serialization of public key");
-  a0.unpack(o);
-  b0.unpack(o);
+  a0.unpack(o, *params);
+  b0.unpack(o, *params);
   if (params->n_mults() > 0)
     {
-      Sw_a.unpack(o);
-      Sw_b.unpack(o);
+      Sw_a.unpack(o, *params);
+      Sw_b.unpack(o, *params);
     }
   pr.unpack(o);
 }
@@ -321,7 +340,6 @@ bool FHE_PK::operator!=(const FHE_PK& x) const
   else
     return false;
 }
-
 
 void FHE_SK::check(const FHE_Params& params, const FHE_PK& pk,
         const bigint& pr) const
@@ -345,8 +363,6 @@ void FHE_SK::check(const FHE_PK& pk, const FD& FieldD)
     throw runtime_error("incorrect key pair");
 }
 
-
-
 void FHE_PK::check(const FHE_Params& params, const bigint& pr) const
 {
   if (this->pr != pr)
@@ -361,30 +377,36 @@ void FHE_PK::check(const FHE_Params& params, const bigint& pr) const
     }
 }
 
+bigint FHE_SK::get_noise(const Ciphertext& c)
+{
+  sk.lower_level();
+  Ciphertext cc = c;
+  if (cc.level())
+    cc.Scale();
+  Rq_Element tmp = quasi_decrypt(cc);
+  bigint res;
+  bigint q = tmp.get_modulus();
+  bigint half_q = q / 2;
+  for (auto& x : tmp.to_vec_bigint())
+    {
+//      cout << numBits(x) << "/" << (x > half_q) << "/" << (x < 0) << " ";
+      res = max(res, x > half_q ? x - q : x);
+    }
+  return res;
+}
 
 
-template void FHE_PK::encrypt(Ciphertext&, const Plaintext_<FFT_Data>& mess,
-    const Random_Coins& rc) const;
-template void FHE_PK::encrypt(Ciphertext&, const Plaintext_<P2Data>& mess,
-    const Random_Coins& rc) const;
+#define X(FD) \
+        template void FHE_PK::encrypt(Ciphertext&, const Plaintext_<FD>& mess, \
+                const Random_Coins& rc) const; \
+        template Ciphertext FHE_PK::encrypt(const Plaintext_<FD>& mess) const; \
+        template Plaintext_<FD> FHE_SK::decrypt(const Ciphertext& c, \
+                const FD& FieldD); \
+        template void FHE_SK::decrypt(Plaintext_<FD>& res, \
+		const Ciphertext& c) const; \
+        template void FHE_SK::decrypt_any(Plaintext_<FD>& res, \
+		const Ciphertext& c); \
+        template void FHE_SK::check(const FHE_PK& pk, const FD&);
 
-template Ciphertext FHE_PK::encrypt(const Plaintext_<FFT_Data>& mess,
-    const Random_Coins& rc) const;
-template Ciphertext FHE_PK::encrypt(const Plaintext_<FFT_Data>& mess) const;
-template Ciphertext FHE_PK::encrypt(const Plaintext_<P2Data>& mess) const;
-
-template void FHE_SK::decrypt(Plaintext_<FFT_Data>&, const Ciphertext& c) const;
-template void FHE_SK::decrypt(Plaintext_<P2Data>&, const Ciphertext& c) const;
-
-template Plaintext_<FFT_Data> FHE_SK::decrypt(const Ciphertext& c,
-        const FFT_Data& FieldD);
-template Plaintext_<P2Data> FHE_SK::decrypt(const Ciphertext& c,
-        const P2Data& FieldD);
-
-template void FHE_SK::decrypt_any(Plaintext_<FFT_Data>& res,
-        const Ciphertext& c);
-template void FHE_SK::decrypt_any(Plaintext_<P2Data>& res,
-        const Ciphertext& c);
-
-template void FHE_SK::check(const FHE_PK& pk, const FFT_Data&);
-template void FHE_SK::check(const FHE_PK& pk, const P2Data&);
+X(FFT_Data)
+X(P2Data)

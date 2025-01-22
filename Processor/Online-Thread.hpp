@@ -43,7 +43,9 @@ void thread_info<sint, sgf2n>::Sub_Main_Func()
   BaseMachine::s().thread_num = num;
 
   auto& queues = machine.queues[num];
+  auto& opts = machine.opts;
   queues->next();
+  ThreadQueue::thread_queue = queues;
 
 #ifdef DEBUG_THREADS
   fprintf(stderr, "\tI am in thread %d\n",num);
@@ -57,7 +59,7 @@ void thread_info<sint, sgf2n>::Sub_Main_Func()
 #endif
       player = new CryptoPlayer(*(tinfo->Nms), id);
     }
-  else if (!machine.receive_threads or machine.direct)
+  else if (!opts.receive_threads or opts.direct)
     {
 #ifdef VERBOSE_OPTIONS
       cerr << "Using single-threaded receiving" << endl;
@@ -79,7 +81,7 @@ void thread_info<sint, sgf2n>::Sub_Main_Func()
   typename sgf2n::MAC_Check* MC2;
   typename sint::MAC_Check*  MCp;
 
-  if (machine.direct)
+  if (opts.direct)
     {
 #ifdef VERBOSE_OPTIONS
       cerr << "Using direct communication." << endl;
@@ -92,13 +94,16 @@ void thread_info<sint, sgf2n>::Sub_Main_Func()
 #ifdef VERBOSE_OPTIONS
       cerr << "Using indirect communication." << endl;
 #endif
-      MC2 = new typename sgf2n::MAC_Check(*(tinfo->alpha2i), machine.opening_sum, machine.max_broadcast);
-      MCp = new typename sint::MAC_Check(*(tinfo->alphapi), machine.opening_sum, machine.max_broadcast);
+      MC2 = new typename sgf2n::MAC_Check(*(tinfo->alpha2i), opts.opening_sum, opts.max_broadcast);
+      MCp = new typename sint::MAC_Check(*(tinfo->alphapi), opts.opening_sum, opts.max_broadcast);
     }
 
   // Allocate memory for first program before starting the clock
   processor = new Processor<sint, sgf2n>(tinfo->thread_num,P,*MC2,*MCp,machine,progs.at(thread_num > 0));
   auto& Proc = *processor;
+
+  // don't count communication for initialization
+  P.reset_stats();
 
   bool flag=true;
   int program=-3; 
@@ -115,6 +120,8 @@ void thread_info<sint, sgf2n>::Sub_Main_Func()
   DataPositions actual_usage(P.num_players());
   Timer thread_timer(CLOCK_THREAD_CPUTIME_ID), wait_timer;
   thread_timer.start();
+  TimerWithComm timer, online_timer, online_prep_timer;
+  timer.start();
 
   while (flag)
     { // Wait until I have a program to run
@@ -123,7 +130,8 @@ void thread_info<sint, sgf2n>::Sub_Main_Func()
       program = job.prognum;
       wait_timer.stop();
 #ifdef DEBUG_THREADS
-      printf("\tRunning program %d\n",program);
+      printf("\tRunning program %d/job %d in thread %d\n", program, job.type,
+          num);
 #endif
 
       if (program==-1)
@@ -205,6 +213,10 @@ void thread_info<sint, sgf2n>::Sub_Main_Func()
               *(vector<edabit<sint>>*) job.output, job.length, job.prognum,
               job.arg, Proc.Procp,
               job.begin, job.end, job.supply);
+#ifdef DEBUG_THREADS
+          printf("\tSignalling I have finished with job %d in thread %d\n",
+              job.type, num);
+#endif
           queues->finished(job);
         }
       else if (job.type == PERSONAL_TRIPLE_JOB)
@@ -254,6 +266,8 @@ void thread_info<sint, sgf2n>::Sub_Main_Func()
 #ifdef DEBUG_THREADS
           printf("\tClient %d about to run %d\n",num,program);
 #endif
+          online_timer.start(P.total_comm());
+          online_prep_timer -= Proc.DataF.total_time();
           Proc.reset(progs[program], job.arg);
 
           // Bits, Triples, Squares, and Inverses skipping
@@ -264,6 +278,9 @@ void thread_info<sint, sgf2n>::Sub_Main_Func()
           //printf("\tExecuting program");
           // Execute the program
           progs[program].execute(Proc);
+
+          // make sure values used in other threads are safe
+          Proc.check();
 
           // prevent mangled output
           cout.flush();
@@ -276,8 +293,11 @@ void thread_info<sint, sgf2n>::Sub_Main_Func()
            }
 
 #ifdef DEBUG_THREADS
-          printf("\tSignalling I have finished\n");
+          printf("\tSignalling I have finished with program %d"
+              "in thread %d\n", program, num);
 #endif
+          online_timer.stop(P.total_comm());
+          online_prep_timer += Proc.DataF.total_time();
           wait_timer.start();
           queues->finished(job, P.total_comm());
 	 wait_timer.stop();
@@ -285,12 +305,14 @@ void thread_info<sint, sgf2n>::Sub_Main_Func()
     }
 
   // final check
+  online_timer.start(P.total_comm());
+  online_prep_timer -= Proc.DataF.total_time();
   Proc.check();
+  online_timer.stop(P.total_comm());
+  online_prep_timer += Proc.DataF.total_time();
 
-#ifndef INSECURE
   if (machine.opts.file_prep_per_thread)
     Proc.DataF.prune();
-#endif
 
   wait_timer.start();
   queues->next();
@@ -318,11 +340,58 @@ void thread_info<sint, sgf2n>::Sub_Main_Func()
   cerr << endl;
 #endif
 
+  if (num == 0 and OnlineOptions::singleton.verbose
+      and machine.queues.size() > 1)
+    {
+      cerr << "Main thread communication:" << endl;
+      P.total_comm().print();
+    }
+
   // wind down thread by thread
   machine.stats += Proc.stats;
+  queues->timers["wait"] = wait_timer + queues->wait_timer;
+  timer.stop(P.total_comm());
+  queues->timers["online"] = online_timer - online_prep_timer - queues->wait_timer;
+  queues->timers["prep"] = timer - queues->timers["wait"] - queues->timers["online"];
+
+  NamedStats stats;
+  stats["integer multiplications"] = Proc.Procp.protocol.counter;
+  stats["integer multiplication rounds"] = Proc.Procp.protocol.rounds;
+  stats["integer dot products"] = Proc.Procp.protocol.dot_counter;
+  stats["probabilistic truncations"] = Proc.Procp.protocol.trunc_pr_counter;
+  stats["probabilistic truncation rounds"] = Proc.Procp.protocol.trunc_rounds;
+  stats["ANDs"] = Proc.share_thread.protocol->bit_counter;
+  stats["AND rounds"] = Proc.share_thread.protocol->rounds;
+  stats["integer openings"] = MCp->values_opened;
+  stats["integer inputs"] = Proc.Procp.input.values_input;
+  for (auto x : Proc.Procp.shuffler.stats)
+    stats["shuffles of length " + to_string(x.first)] = x.second;
+
+  try
+  {
+      auto proc = dynamic_cast<RingPrep<sint>&>(Proc.DataF.DataFp).bit_part_proc;
+      if (proc)
+        stats["ANDs in preprocessing"] = proc->protocol.bit_counter;
+  }
+  catch (...)
+  {
+  }
+
+  try
+  {
+      auto protocol = dynamic_cast<BitPrep<sint>&>(Proc.DataF.DataFp).protocol;
+      if (protocol)
+        stats["integer multiplications in preprocessing"] = protocol->counter;
+  }
+  catch (...)
+  {
+  }
+
+  // prevent faulty usage message
+  Proc.DataF.set_usage(actual_usage);
   delete processor;
 
-  queues->finished(actual_usage, P.total_comm());
+  queues->finished(actual_usage, P.total_comm(), stats);
 
   delete MC2;
   delete MCp;
@@ -338,6 +407,27 @@ template<class sint, class sgf2n>
 void* thread_info<sint, sgf2n>::Main_Func(void* ptr)
 {
   auto& ti = *(thread_info<sint, sgf2n>*)(ptr);
+  if (OnlineOptions::singleton.has_option("throw_exceptions"))
+    ti.Main_Func_With_Purge();
+  else
+    {
+      try
+      {
+          ti.Main_Func_With_Purge();
+      }
+      catch (exception& e)
+      {
+          cerr << "Fatal error: " << e.what() << endl;
+          exit(1);
+      }
+    }
+  return 0;
+}
+
+template<class sint, class sgf2n>
+void thread_info<sint, sgf2n>::Main_Func_With_Purge()
+{
+  auto& ti = *this;
 #ifdef INSECURE
   ti.Sub_Main_Func();
 #else
@@ -348,14 +438,16 @@ void* thread_info<sint, sgf2n>::Main_Func(void* ptr)
     {
       ti.Sub_Main_Func();
     }
+    catch (setup_error&)
+    {
+      throw;
+    }
     catch (...)
     {
-      thread_info<sint, sgf2n>* ti = (thread_info<sint, sgf2n>*)ptr;
-      ti->purge_preprocessing(ti->machine->get_N(), ti->thread_num);
+      purge_preprocessing(machine->get_N(), thread_num);
       throw;
     }
 #endif
-  return 0;
 }
 
 
@@ -365,16 +457,20 @@ void thread_info<sint, sgf2n>::purge_preprocessing(const Names& N, int thread_nu
   cerr << "Purging preprocessed data because something is wrong" << endl;
   try
   {
-      Data_Files<sint, sgf2n> df(N);
+      Data_Files<sint, sgf2n> df(N, thread_num);
       df.purge();
       DataPositions pos;
       Sub_Data_Files<typename sint::bit_type> bit_df(N, pos, thread_num);
       bit_df.get_part();
       bit_df.purge();
   }
-  catch(...)
+  catch(setup_error&)
+  {
+  }
+  catch(exception& e)
   {
       cerr << "Purging failed. This might be because preprocessed data is incomplete." << endl
           << "SECURITY FAILURE; YOU ARE ON YOUR OWN NOW!" << endl;
+      cerr << "Reason: " << e.what() << endl;
   }
 }

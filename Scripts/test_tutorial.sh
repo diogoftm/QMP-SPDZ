@@ -37,10 +37,8 @@ function test_vm
     fi
 }
 
-# big buckets for smallest batches
-run_opts="$run_opts -B 5"
-
 export PORT=$((RANDOM%10000+10000))
+export BENCH=
 
 for dabit in ${dabit:-0 1 2}; do
     if [[ $dabit = 1 ]]; then
@@ -52,7 +50,7 @@ for dabit in ${dabit:-0 1 2}; do
     ./compile.py -R 64 $compile_opts tutorial
 
     for i in ring rep4-ring semi2k brain mal-rep-ring ps-rep-ring sy-rep-ring \
-	     spdz2k; do
+	     spdz2k dealer-ring; do
 	test_vm $i $run_opts
     done
 
@@ -60,12 +58,12 @@ for dabit in ${dabit:-0 1 2}; do
 
     for i in rep-field shamir mal-rep-field ps-rep-field sy-rep-field \
 		       atlas mal-shamir sy-shamir hemi semi temi \
-		       soho mascot; do
+		       soho mascot mama; do
 	test_vm $i $run_opts
     done
 
     for i in cowgear chaigear; do
-	test_vm $i $run_opts -l 3 -c 2
+	test_vm $i $run_opts -S 3 -c 2
     done
 done
 
@@ -82,15 +80,17 @@ fi
 
 ./compile.py tutorial
 
-for i in cowgear chaigear; do
-    test_vm $i $run_opts -l 3 -c 2 -J
-done
+if test $no_top_gear; then
+    for i in cowgear chaigear; do
+	test_vm $i $run_opts -S 3 -c 2 -J
+    done
+fi
 
 if test $skip_binary; then
    exit
 fi
 
-./compile.py -B 16  $compile_opts tutorial
+./compile.py -GB 16  $compile_opts tutorial
 
 for i in replicated mal-rep-bin ps-rep-bin semi-bin ccd mal-ccd; do
     test_vm $i $run_opts

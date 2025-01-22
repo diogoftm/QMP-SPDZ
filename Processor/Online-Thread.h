@@ -33,6 +33,7 @@ class thread_info
       const char* name);
 
   void Sub_Main_Func();
+  void Main_Func_With_Purge();
 };
 
 #endif

@@ -41,6 +41,7 @@ void octetStream::assign(const octetStream& os)
   len=os.len;
   memcpy(data,os.data,len*sizeof(octet));
   ptr=os.ptr;
+  bits = os.bits;
 }
 
 
@@ -68,6 +69,7 @@ octetStream::octetStream(const octetStream& os)
   data=new octet[mxlen];
   memcpy(data,os.data,len*sizeof(octet));
   ptr=os.ptr;
+  bits = os.bits;
 }
 
 octetStream::octetStream(FlexBuffer& buffer)
@@ -88,7 +90,7 @@ string octetStream::str() const
 
 void octetStream::hash(octetStream& output) const
 {
-  assert(output.mxlen >= crypto_generichash_blake2b_BYTES_MIN);
+  output.resize(crypto_generichash_BYTES_MIN);
   crypto_generichash(output.data, crypto_generichash_BYTES_MIN, data, len, NULL, 0);
   output.len=crypto_generichash_BYTES_MIN;
 }
@@ -104,12 +106,13 @@ octetStream octetStream::hash() const
 
 bigint octetStream::check_sum(int req_bytes) const
 {
-  unsigned char hash[req_bytes];
+  auto hash = new unsigned char[req_bytes];
   crypto_generichash(hash, req_bytes, data, len, NULL, 0);
 
   bigint ans;
   bigintFromBytes(ans,hash,req_bytes);
   // cout << ans << "\n";
+  delete[] hash;
   return ans;
 }
 
@@ -121,28 +124,30 @@ bool octetStream::equals(const octetStream& a) const
 }
 
 
+void octetStream::flush_bits()
+{
+  bits[0].n = 0;
+  store_int<1>(bits[0].buffer);
+  bits[0].buffer = 0;
+}
+
+
 void octetStream::append_random(size_t num)
 {
-  resize(len+num);
-  randombytes_buf(data+len, num);
-  len+=num;
+  randombytes_buf(append(num), num);
 }
 
 
 void octetStream::concat(const octetStream& os)
 {
-  resize(len+os.len);
-  memcpy(data+len,os.data,os.len*sizeof(octet));
-  len+=os.len;
+  memcpy(append(os.len), os.data, os.len*sizeof(octet));
 }
 
 
 void octetStream::store_bytes(octet* x, const size_t l)
 {
-  resize(len+4+l); 
-  encode_length(data+len,l,4); len+=4;
-  memcpy(data+len,x,l*sizeof(octet));
-  len+=l;
+  encode_length(append(4), l, 4);
+  memcpy(append(l), x, l*sizeof(octet));
 }
 
 void octetStream::get_bytes(octet* ans, size_t& length)
@@ -153,9 +158,7 @@ void octetStream::get_bytes(octet* ans, size_t& length)
 
 void octetStream::store(int l)
 {
-  resize(len+4);
-  encode_length(data+len,l,4);
-  len+=4;
+  encode_length(append(4), l, 4);
 }
 
 
@@ -168,15 +171,9 @@ void octetStream::get(int& l)
 void octetStream::store(const bigint& x)
 {
   size_t num=numBytes(x);
-  resize(len+num+5);
-
-  (data+len)[0]=0;
-  if (x<0) { (data+len)[0]=1; }
-  len++;
-
-  encode_length(data+len,num,4); len+=4;
-  bytesFromBigint(data+len,x,num);
-  len+=num;
+  *append(1) = x < 0;
+  encode_length(append(4), num, 4);
+  bytesFromBigint(append(num), x, num);
 }
 
 
@@ -222,6 +219,15 @@ void octetStream::exchange(T send_socket, T receive_socket, octetStream& receive
 }
 
 
+
+void octetStream::input(const string& filename)
+{
+  ifstream s(filename);
+  if (not s.good())
+    throw file_error("cannot read from " + filename);
+  input(s);
+}
+
 void octetStream::input(istream& s)
 {
   size_t size;
@@ -235,7 +241,7 @@ void octetStream::input(istream& s)
     throw IO_Error("not enough data");
 }
 
-void octetStream::output(ostream& s)
+void octetStream::output(ostream& s) const
 {
   s.write((char*)&len, sizeof(len));
   s.write((char*)data, len);

@@ -1,0 +1,31 @@
+from circuit import Circuit
+import sys
+
+cir = Circuit('dis_f84')
+sb64k = sbits.get_type(64000)
+
+n_inputs = int(sys.argv[2])
+
+print_ln('Working with %s sequences', n_inputs) 
+
+l0 = sb64k.Array(n_inputs*n_inputs)
+l1 = sb64k.Array(n_inputs*n_inputs)
+
+for i in range(n_inputs):
+    a = sb64k.get_input_from(0)
+    b = sb64k.get_input_from(1)
+
+    for n in range(n_inputs):
+        l0[i*n_inputs+n] = a
+        l1[n*n_inputs+i] = b
+
+distance = cir(sbitvec(l0), sbitvec(l1))
+
+# A, B, nA, nC, nG, nT
+r0 = [distance[0].elements()[n].reveal() for n in range(n_inputs*n_inputs)]
+r1 = [distance[1].elements()[n].reveal() for n in range(n_inputs*n_inputs)]
+r2 = [distance[2].elements()[n].reveal() for n in range(n_inputs*n_inputs)]
+r3 = [distance[3].elements()[n].reveal() for n in range(n_inputs*n_inputs)]
+r4 = [distance[4].elements()[n].reveal() for n in range(n_inputs*n_inputs)]
+r5 = [distance[5].elements()[n].reveal() for n in range(n_inputs*n_inputs)]
+print_ln("%s %s %s %s %s %s", r0, r1, r2, r3, r4, r5)

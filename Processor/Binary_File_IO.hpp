@@ -44,18 +44,27 @@ void Binary_File_IO::write_to_file(const string filename,
 }
 
 template<class T>
-void Binary_File_IO::read_from_file(const string filename, vector< T >& buffer, const int start_posn, int &end_posn)
+void Binary_File_IO::read_from_file(const string filename, vector<T>& buffer,
+    const long start_posn, long& end_posn)
 {
   ifstream inf;
   inf.open(filename, ios::in | ios::binary);
   if (inf.fail()) { throw file_missing(filename, "Binary_File_IO.read_from_file expects this file to exist."); }
 
-  check_file_signature<T>(inf, filename).get_length();
+  try
+  {
+    check_file_signature<T>(inf, filename).get_length();
+  }
+  catch (exception& e)
+  {
+    throw persistence_error(e.what());
+  }
+
   auto data_start = inf.tellg();
 
   int size_in_bytes = T::size() * buffer.size();
   int n_read = 0;
-  char read_buffer[size_in_bytes];
+  char* read_buffer = new char[size_in_bytes];
   inf.seekg(start_posn * T::size(), iostream::cur);
   do
   {
@@ -68,13 +77,13 @@ void Binary_File_IO::read_from_file(const string filename, vector< T >& buffer, 
         ss << "Got to EOF when reading from disk (expecting " << size_in_bytes
             << " bytes from " << (long(data_start) + start_posn * T::size())
             << ").";
-        throw file_error(ss.str());
+        throw persistence_error(ss.str());
       }
       if (inf.fail())
       {
         stringstream ss;
         ss << "IO problem when reading from disk";
-        throw file_error(ss.str());
+        throw persistence_error(ss.str());
       }
   }
   while (n_read < size_in_bytes);
@@ -90,4 +99,6 @@ void Binary_File_IO::read_from_file(const string filename, vector< T >& buffer, 
 
   for (unsigned int i = 0; i < buffer.size(); i++)
     buffer[i].assign(&read_buffer[i*T::size()]);
+
+  delete[] read_buffer;
 }

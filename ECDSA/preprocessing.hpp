@@ -37,6 +37,9 @@ void preprocessing(vector<EcTuple<T>>& tuples, int buffer_size,
         EcdsaOptions opts)
 {
     bool prep_mul = opts.prep_mul;
+    if (prep_mul)
+        proc.protocol.init_mul();
+
     Timer timer;
     timer.start();
     Player& P = proc.P;
@@ -77,7 +80,6 @@ void preprocessing(vector<EcTuple<T>>& tuples, int buffer_size,
         MCc.POpen_Begin(opened_Rs, secret_Rs, extra_player);
     if (prep_mul)
     {
-        protocol.init_mul();
         for (int i = 0; i < buffer_size; i++)
             protocol.prepare_mul(inv_ks[i], sk);
         protocol.start_exchange();

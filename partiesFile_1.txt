@@ -1,0 +1,2 @@
+127.0.0.1:5555 qkd//app2@bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb 38fa3065-3609-43a5-8906-0ed0451008d9 0
+127.0.0.1:5556 qkd//app1@aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa - -

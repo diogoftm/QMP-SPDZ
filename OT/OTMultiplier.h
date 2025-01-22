@@ -13,6 +13,7 @@ using namespace std;
 #include "OT/OTVole.h"
 #include "OT/Rectangle.h"
 #include "Tools/random.h"
+#include "Tools/CheckVector.h"
 
 template<class T>
 class NPartyTripleGenerator;
@@ -54,16 +55,17 @@ class OTMultiplier : public OTMultiplierMac<typename T::sacri_type, typename T::
 {
 protected:
     BitVector keyBits;
-    vector< vector<BitVector> > senderOutput;
+    vector< array<BitVector, 2> > senderOutput;
     vector<BitVector> receiverOutput;
 
     void multiplyForTriples();
     virtual void multiplyForBits();
+    virtual void multiplyForMixed();
 	virtual void multiplyForInputs(MultJob job) = 0;
 
     virtual void after_correlation() = 0;
     virtual void init_authenticator(const BitVector& baseReceiverInput,
-            const vector< vector<BitVector> >& baseSenderInput,
+            const vector< array<BitVector, 2> >& baseSenderInput,
             const vector<BitVector>& baseReceiverOutput) = 0;
 
 public:
@@ -75,6 +77,8 @@ public:
 
     OTMultiplier(OTTripleGenerator<T>& generator, int thread_num);
     virtual ~OTMultiplier();
+
+    void init();
     void multiply();
 };
 
@@ -84,7 +88,7 @@ class MascotMultiplier : public OTMultiplier<T>
     OTCorrelator<Matrix<typename T::Square> > auth_ot_ext;
     void after_correlation();
     void init_authenticator(const BitVector& baseReceiverInput,
-            const vector< vector<BitVector> >& baseSenderInput,
+            const vector< array<BitVector, 2> >& baseSenderInput,
             const vector<BitVector>& baseReceiverOutput);
 
     void multiplyForBits();
@@ -108,7 +112,7 @@ class TinyMultiplier : public OTMultiplier<T>
 
     void after_correlation();
     void init_authenticator(const BitVector& baseReceiverInput,
-            const vector< vector<BitVector> >& baseSenderInput,
+            const vector< array<BitVector, 2> >& baseSenderInput,
             const vector<BitVector>& baseReceiverOutput);
 
 public:
@@ -126,7 +130,7 @@ class TinierMultiplier : public OTMultiplier<T>
 
     void after_correlation();
     void init_authenticator(const BitVector& baseReceiverInput,
-            const vector< vector<BitVector> >& baseSenderInput,
+            const vector< array<BitVector, 2> >& baseSenderInput,
             const vector<BitVector>& baseReceiverOutput);
 
 public:
@@ -146,7 +150,7 @@ class Spdz2kMultiplier: public OTMultiplier<Spdz2kShare<K, S>>
 
     void after_correlation();
     void init_authenticator(const BitVector& baseReceiverInput,
-            const vector< vector<BitVector> >& baseSenderInput,
+            const vector< array<BitVector, 2> >& baseSenderInput,
             const vector<BitVector>& baseReceiverOutput);
 
     void multiplyForInputs(MultJob job);
@@ -173,17 +177,20 @@ class SemiMultiplier : public OTMultiplier<T>
         throw not_implemented();
     }
 
+    void multiplyForBits();
+    void multiplyForMixed();
+
     void after_correlation();
 
     void init_authenticator(const BitVector& baseReceiverInput,
-            const vector< vector<BitVector> >& baseSenderInput,
+            const vector< array<BitVector, 2> >& baseSenderInput,
             const vector<BitVector>& baseReceiverOutput)
     {
         (void) baseReceiverInput, (void) baseReceiverOutput, (void) baseSenderInput;
     }
 
 public:
-    vector<typename T::open_type> c_output;
+    CheckVector<typename T::open_type> c_output;
 
     SemiMultiplier(OTTripleGenerator<T>& generator, int i) :
             OTMultiplier<T>(generator, i)

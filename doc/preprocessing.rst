@@ -29,6 +29,8 @@ using ``-b``, others mandate a batch size, which can be as large as a
 million.
 
 
+.. _prep-files:
+
 Separate preprocessing
 ======================
 
@@ -55,6 +57,7 @@ follows:
 - Length to follow (little-endian 8-byte number)
 - Protocol descriptor
 - Domain descriptor
+- MAC if applicable
 
 The protocol descriptor is defined by ``<share
 type>::type_string()``. For SPDZ modulo a prime it is ``SPDZ gfp``.
@@ -79,11 +82,14 @@ As an example, the following output of ``hexdump -C`` describes SPDZ
 modulo the default 128-bit prime
 (170141183460469231731687303715885907969)::
 
-  00000000  1d 00 00 00 00 00 00 00  53 50 44 5a 20 67 66 70  |........SPDZ gfp|
+  00000000  2d 00 00 00 00 00 00 00  53 50 44 5a 20 67 66 70  |-.......SPDZ gfp|
   00000010  00 10 00 00 00 80 00 00  00 00 00 00 00 00 00 00  |................|
-  00000020  00 00 1b 80 01                                    |.....|
-  00000025
+  00000020  00 00 1b 80 01 3a ed c2  28 c0 3d 5e 24 8f 2c a5  |.....:..(.=^$.,.|
+  00000030  9b d6 2d 83 12
 
+The last 128 bits denote the MAC and will differ from instance to
+instance. The MAC is stored to avoid errors that are hard to track
+otherwise.
 
 The actual data is stored is by simple concatenation. For example,
 triples are stored as repetitions of ``a, b, ab``, and daBits are
@@ -102,11 +108,22 @@ Modulo a prime
   with :math:`R` being the smallest power of :math:`2^{64}` larger than
   the prime. For example, :math:`R = 2^{128}` for a 128-bit prime.
   Furthermore, the values are stored in the smallest number of 8-byte
-  blocks necessary, all in little-endian order.
+  blocks necessary, all in little-endian order. As an example,
+  consider the default 128-bit prime
+  :math:`p = 170141183460469231731687303715885907969`. The Montgomery
+  representation of :math:`x` is :math:`xR \bmod p`. For :math:`x =
+  1`, this is 170141183460469231731687303715882303487 or
+  0x7fffffffffffffffffffffffffe47fff in hexadecimal. Using
+  to little-endian, ``hexdump -C`` would output the following::
+
+    ff 7f e4 ff ff ff ff ff ff ff ff ff ff ff ff 7f
 
 Modulo a power of two:
   Values are stored in the smallest number of 8-byte blocks necessary,
-  all in little-endian order.
+  all in little-endian order, so 1 with a modulus of :math:`2^{64}`
+  would result in the following ``hexdump -C`` output::
+
+    01 00 00 00 00 00 00 00
 
 :math:`GF(2^n)`
   Values are stored in blocks according to the storage size above,

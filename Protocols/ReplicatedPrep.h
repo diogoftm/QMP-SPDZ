@@ -13,7 +13,9 @@
 #include "Protocols/ShuffleSacrifice.h"
 #include "Protocols/MAC_Check_Base.h"
 #include "Protocols/ShuffleSacrifice.h"
+#include "Tools/TimerWithComm.h"
 #include "edabit.h"
+#include "DabitSacrifice.h"
 
 #include <array>
 
@@ -33,6 +35,10 @@ class BufferPrep : public Preprocessing<T>
 {
     template<class U, class V> friend class Machine;
 
+    friend class InScope;
+
+    static const bool homomorphic = false;
+
     template<int>
     void buffer_inverses(true_type);
     template<int>
@@ -47,9 +53,13 @@ protected:
 
     vector<dabit<T>> dabits;
 
+    map<pair<bool, int>, vector<edabitvec<T>>> edabits;
+    map<pair<bool, int>, edabitvec<T>> my_edabits;
+
     int n_bit_rounds;
 
     SubProcessor<T>* proc;
+    Player* P;
 
     virtual void buffer_triples() { throw runtime_error("no triples"); }
     virtual void buffer_squares() { throw runtime_error("no squares"); }
@@ -74,12 +84,11 @@ protected:
     { throw runtime_error("no personal daBits"); }
 
     void push_edabits(vector<edabitvec<T>>& edabits,
-            const vector<T>& sums, const vector<vector<typename T::bit_type::part_type>>& bits,
-            int buffer_size);
+            const vector<T>& sums,
+            const vector<vector<typename T::bit_type::part_type>>& bits);
+
 public:
     typedef T share_type;
-
-    int buffer_size;
 
     /// Key-independent setup if necessary (cryptosystem parameters)
     static void basic_setup(Player& P) { (void) P; }
@@ -94,6 +103,10 @@ public:
         throw runtime_error("sacrifice not available");
     }
 
+    static bool bits_from_dabits() { return false; }
+    static bool bits_from_triples() { return false; }
+    static bool dabits_from_bits() { return false; }
+
     BufferPrep(DataPositions& usage);
     virtual ~BufferPrep();
 
@@ -103,10 +116,13 @@ public:
     void get_two_no_count(Dtype dtype, T& a, T& b);
     void get_one_no_count(Dtype dtype, T& a);
     void get_input_no_count(T& a, typename T::open_type& x, int i);
-    void get_no_count(vector<T>& S, DataTag tag, const vector<int>& regs,
+    void get_no_count(StackedVector<T>& S, DataTag tag, const vector<int>& regs,
             int vector_size);
 
     virtual void get_dabit_no_count(T& a, typename T::bit_type& b);
+
+    edabitvec<T> get_edabitvec(bool strict, int n_bits);
+    void get_edabit_no_count(bool strict, int n_bits, edabit<T>& eb);
 
     /// Get fresh random value
     virtual T get_random();
@@ -123,6 +139,8 @@ public:
 
     SubProcessor<T>* get_proc() { return proc; }
     void set_proc(SubProcessor<T>* proc) { this->proc = proc; }
+
+    void buffer_extra(Dtype type, int n_items);
 };
 
 /**
@@ -134,12 +152,12 @@ class BitPrep : public virtual BufferPrep<T>
 protected:
     int base_player;
 
-    typename T::Protocol* protocol;
-
     void buffer_ring_bits_without_check(vector<T>& bits, PRNG& G,
             int buffer_size);
 
 public:
+    typename T::Protocol* protocol;
+
     BitPrep(SubProcessor<T>* proc, DataPositions& usage);
     ~BitPrep();
 
@@ -159,8 +177,6 @@ template<class T>
 class RingPrep : public virtual BitPrep<T>
 {
     typedef typename T::bit_type::part_type BT;
-
-    SubProcessor<BT>* bit_part_proc;
 
 protected:
     void buffer_dabits_without_check(vector<dabit<T>>& dabits,
@@ -194,6 +210,8 @@ protected:
             typename BT::Input& bit_input, int input_player, int begin, int end);
 
 public:
+    SubProcessor<BT>* bit_part_proc;
+
     RingPrep(SubProcessor<T>* proc, DataPositions& usage);
     virtual ~RingPrep();
 
@@ -260,7 +278,7 @@ public:
     void buffer_edabits(int n_bits, false_type)
     { this->template buffer_edabits_without_check<0>(n_bits,
             this->edabits[{false, n_bits}],
-            OnlineOptions::singleton.batch_size); }
+            BaseMachine::edabit_batch_size<T>(n_bits, this->buffer_size)); }
     template<int>
     void buffer_edabits(int, true_type)
     { throw not_implemented(); }
@@ -274,6 +292,8 @@ public:
 template<class T>
 class MaliciousDabitOnlyPrep : public virtual RingPrep<T>
 {
+    DabitSacrifice<T> dabit_sacrifice;
+
     template<int>
     void buffer_dabits(ThreadQueues* queues, true_type, false_type);
     template<int>
@@ -299,6 +319,8 @@ template<class T>
 class MaliciousRingPrep : public virtual MaliciousDabitOnlyPrep<T>
 {
     typedef typename T::bit_type::part_type BT;
+
+    DabitSacrifice<T> dabit_sacrifice;
 
 protected:
     void buffer_personal_edabits(int n_bits, vector<T>& sums,
@@ -331,7 +353,7 @@ public:
             bool strict, int player, SubProcessor<T>& proc, int begin, int end,
             const void* supply = 0)
     {
-        EdabitShuffleSacrifice<T>().edabit_sacrifice_buckets(to_check, n_bits, strict,
+        EdabitShuffleSacrifice<T>(n_bits).edabit_sacrifice_buckets(to_check, strict,
                 player, proc, begin, end, supply);
     }
 

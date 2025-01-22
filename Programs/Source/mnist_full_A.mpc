@@ -10,6 +10,7 @@ import util
 
 program.options_from_args()
 sfix.set_precision_from_args(program, adapt_ring=True)
+ml.use_mux = 'mux' in program.args
 MultiArray.disable_index_checks()
 
 if 'profile' in program.args:
@@ -61,9 +62,6 @@ else:
 
 if 'nearest' in program.args:
     sfix.round_nearest = True
-
-if program.options.ring:
-    assert sfix.f * 4 == int(program.options.ring)
 
 debug_ml = ('debug_ml' in program.args) * 2 ** (sfix.f / 2)
 

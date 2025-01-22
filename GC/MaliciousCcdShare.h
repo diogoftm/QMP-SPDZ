@@ -32,6 +32,7 @@ public:
     typedef Beaver<This> Protocol;
 
     typedef MaliciousShamirMC<This> MAC_Check;
+    typedef MAC_Check Direct_MC;
 
     typedef This small_type;
 
@@ -44,14 +45,9 @@ public:
         return "Malicious CCD";
     }
 
-    static MAC_Check* new_mc(T)
+    static MAC_Check* new_mc(typename super::mac_key_type)
     {
         return new MAC_Check;
-    }
-
-    static This new_reg()
-    {
-        return {};
     }
 
     MaliciousCcdShare()

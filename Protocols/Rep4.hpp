@@ -4,6 +4,7 @@
  */
 
 #include "Rep4.h"
+#include "GC/square64.h"
 #include "Processor/TruncPrTuple.h"
 
 template<class T>
@@ -35,19 +36,25 @@ Rep4<T>::Rep4(Player& P, prngs_type& prngs) :
 template<class T>
 Rep4<T>::~Rep4()
 {
+    check();
+
     for (auto& x : receive_hashes)
         for (auto& y : x)
-            if (y.size > 0)
-            {
-                check();
-                return;
-            }
+            assert(y.size == 0);
 
     for (auto& x : send_hashes)
         for (auto& y : x)
-            if (y.size > 0)
+            assert(y.size == 0);
+}
+
+template<class T>
+void Rep4<T>::check()
+{
+    for (auto& x : channels)
+        for (auto y : x)
+            if (y)
             {
-                check();
+                must_check();
                 return;
             }
 }
@@ -136,6 +143,9 @@ void Rep4<T>::prepare_joint_input(int sender, int backup, int receiver,
             throw not_implemented();
         }
     }
+
+    for (auto& x : send_os)
+        x.append(0);
 }
 
 template<class T>
@@ -176,6 +186,7 @@ void Rep4<T>::finalize_joint_input(int sender, int backup, int receiver,
             x.res[index] += res[1];
         }
 
+        os->consume(0);
         receive_hashes[sender][backup].update(start,
                 os->get_data_ptr() - start);
     }
@@ -255,7 +266,7 @@ void Rep4<T>::exchange()
 template<class T>
 T Rep4<T>::finalize_mul(int n_bits)
 {
-    this->counter++;
+    this->add_mul(n_bits);
     if (n_bits == -1)
         return results.next().res;
     else
@@ -283,7 +294,7 @@ T Rep4<T>::finalize_dotprod(int)
 }
 
 template<class T>
-void Rep4<T>::check()
+void Rep4<T>::must_check()
 {
     octetStreams to_send(P);
     for (int i = 1; i < 4; i++)
@@ -467,7 +478,7 @@ void Rep4<T>::trunc_pr(const vector<int>& regs, int size,
 
 template<class T>
 template<class U>
-void Rep4<T>::split(vector<T>& dest, const vector<int>& regs, int n_bits,
+void Rep4<T>::split(StackedVector<T>& dest, const vector<int>& regs, int n_bits,
         const U* source, int n_inputs)
 {
     assert(regs.size() / n_bits == 2);

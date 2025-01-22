@@ -28,11 +28,11 @@ def greater_than(a, b, bits):
     else:
         return a.greater_than(b, bits)
 
-def pow2_value(a, bit_length=None, security=None):
+def pow2_value(a, bit_length=None):
     if is_constant_float(a):
         return 2**a
     else:
-        return a.pow2(bit_length, security)
+        return a.pow2(bit_length)
 
 def mod2m(a, b, bits, signed):
     if isinstance(a, int):
@@ -116,6 +116,11 @@ def round_to_int(x):
         return x.round_to_int()
 
 def tree_reduce(function, sequence):
+    try:
+        return sequence.tree_reduce(function)
+    except AttributeError:
+        pass
+
     sequence = list(sequence)
     assert len(sequence) > 0
     n = len(sequence)
@@ -233,6 +238,9 @@ def mem_size(x):
     except AttributeError:
         return 1
 
+def find_in_dict(d, v):
+    return list(d.keys())[list(d.values()).index(v)]
+
 class set_by_id(object):
     def __init__(self, init=[]):
         self.content = {}
@@ -257,6 +265,9 @@ class set_by_id(object):
     def pop(self):
         return self.content.popitem()[1]
 
+    def remove(self, value):
+        del self.content[id(value)]
+
     def __ior__(self, values):
         for value in values:
             self.add(value)
@@ -280,6 +291,9 @@ class dict_by_id(object):
 
     def __iter__(self):
         return self.keys()
+
+    def pop(self, key):
+        return self.content.pop(id(key), None)
 
 class defaultdict_by_id(dict_by_id):
     def __init__(self, default):

@@ -71,9 +71,9 @@ void Program::parse(istream& s)
     CALLGRIND_STOP_INSTRUMENTATION;
     while (!s.eof())
     {
+        instr.parse(s, pos);
         if (s.bad() or s.fail())
             throw runtime_error("error reading program");
-        instr.parse(s, pos);
         p.push_back(instr);
         //cerr << "\t" << instr << endl;
         s.peek();
@@ -123,10 +123,12 @@ BreakType Program::execute(Processor<T>& Proc, U& dynamic_memory,
         }
         time++;
 #ifdef DEBUG_COMPLEXITY
-        cout << "complexity at " << time << ": " << Proc.complexity << endl;
+        cout << T::part_type::name() << " complexity at " << time << ": " <<
+                Proc.complexity << " after " << hex <<
+                instruction.get_opcode() << dec << endl;
 #endif
     }
-    while (Proc.complexity < (1 << 19));
+    while (Proc.complexity < (size_t) OnlineOptions::singleton.batch_size);
     Proc.time = time;
 #ifdef DEBUG_ROUNDS
     cout << "breaking at time " << Proc.time << endl;

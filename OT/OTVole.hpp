@@ -112,9 +112,9 @@ void OTVoleBase<T>::hash_row(__m128i res[2], const U& row,
 {
 	auto coeff_base = coefficients;
 	int num_blocks = DIV_CEIL(row.size() * T::size(), 16);
-	__m128i buffer[T::size()];
+	__m128i buffer[T::N_BYTES];
 	size_t next = 0;
-	while (next + 16 < row.size())
+	while (next + 16 <= row.size())
 	{
 		for (int j = 0; j < 16; j++)
 			memcpy((char*) buffer + j * T::size(), row[next++].get_ptr(), T::size());
@@ -124,6 +124,8 @@ void OTVoleBase<T>::hash_row(__m128i res[2], const U& row,
 	for (int j = 0; j < 16; j++)
 		if (next < row.size())
 			memcpy((char*) buffer + j * T::size(), row[next++].get_ptr(), T::size());
+		else
+		    memset((char*) buffer + j * T::size(), 0, T::size());
 	for (int j = 0; j < num_blocks % T::size(); j++)
 		add_mul(res, buffer[j], *coefficients++);
 	assert(coefficients == coeff_base + num_blocks);
@@ -205,7 +207,7 @@ void OTVoleBase<T>::consistency_check(vector<octetStream>& os) {
 #endif
         int total_bytes = t0[0].size() * T::size();
         int num_blocks = (total_bytes) / 16 + ((total_bytes % 16) != 0);
-        __m128i coefficients[num_blocks];
+        __m128i* coefficients = new __m128i[num_blocks];
         this->set_coeffs(coefficients, coef_prng_sender, num_blocks);
 
         for (int alpha = 0; alpha < S; ++alpha)
@@ -225,6 +227,7 @@ void OTVoleBase<T>::consistency_check(vector<octetStream>& os) {
                 this->hash_row(os[0], t11, coefficients);
             }
         }
+        delete[] coefficients;
 #ifdef OTVOLE_TIMER
         gettimeofday(&totalendv, NULL);
         double elapsed = timeval_diff(&totalstartv, &totalendv);
@@ -240,7 +243,7 @@ void OTVoleBase<T>::consistency_check(vector<octetStream>& os) {
 #endif
         int total_bytes = t[0].size() * T::size();
         int num_blocks = (total_bytes) / 16 + ((total_bytes % 16) != 0);
-        __m128i coefficients[num_blocks];
+        __m128i* coefficients = new __m128i[num_blocks];
         this->set_coeffs(coefficients, coef_prng_receiver, num_blocks);
 
         octet h00[VOLE_HASH_SIZE] = {0};
@@ -288,6 +291,7 @@ void OTVoleBase<T>::consistency_check(vector<octetStream>& os) {
                 }
             }
         }
+        delete[] coefficients;
 #ifdef OTVOLE_TIMER
         gettimeofday(&totalendv, NULL);
         double elapsed = timeval_diff(&totalstartv, &totalendv);

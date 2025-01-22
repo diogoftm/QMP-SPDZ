@@ -4,6 +4,7 @@
  */
 
 #include "Protocols/SohoShare.h"
+#include "Protocols/SPDZ.h"
 #include "Math/gfp.h"
 #include "Math/gf2n.h"
 #include "FHE/P2Data.h"
@@ -25,6 +26,7 @@
 #include "Protocols/MalRepRingPrep.hpp"
 #include "GC/ShareSecret.hpp"
 #include "GC/SemiHonestRepPrep.h"
+#include "GC/SemiSecret.hpp"
 #include "Math/gfp.hpp"
 
 int main(int argc, const char** argv)

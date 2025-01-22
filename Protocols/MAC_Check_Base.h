@@ -13,6 +13,7 @@ using namespace std;
 #include "Tools/PointerVector.h"
 
 template<class T> class Preprocessing;
+template<class T> class MatrixMC;
 
 /**
  * Abstract base class for opening protocols
@@ -20,6 +21,8 @@ template<class T> class Preprocessing;
 template<class T>
 class MAC_Check_Base
 {
+    friend class MatrixMC<T>;
+
 protected:
     /* MAC Share */
     typename T::mac_key_type::Scalar alphai;
@@ -28,7 +31,10 @@ protected:
     PointerVector<typename T::open_type> values;
 
 public:
-    int values_opened;
+    size_t values_opened;
+
+    static void setup(Player&) {}
+    static void teardown() {}
 
     MAC_Check_Base(const typename T::mac_key_type::Scalar& mac_key = { }) :
             alphai(mac_key), values_opened(0) {}
@@ -53,11 +59,13 @@ public:
     /// Initialize opening round
     virtual void init_open(const Player& P, int n = 0);
     /// Add value to be opened
-    virtual void prepare_open(const T& secret);
+    virtual void prepare_open(const T& secret, int n_bits = -1);
     /// Run opening protocol
     virtual void exchange(const Player& P) = 0;
     /// Get next opened value
-    virtual typename T::open_type finalize_open();
+    virtual typename T::clear finalize_open();
+    virtual typename T::open_type finalize_raw();
+    virtual array<typename T::open_type*, 2> finalize_several(size_t n);
 
     /// Check whether all ``shares`` are ``value``
     virtual void CheckFor(const typename T::open_type& value, const vector<T>& shares, const Player& P);
@@ -65,6 +73,8 @@ public:
     virtual const Player& get_check_player(const Player& P) const { return P; }
 
     virtual void set_prep(Preprocessing<T>&) {}
+
+    void set_random_element(const T&) {}
 };
 
 #endif /* PROTOCOLS_MAC_CHECK_BASE_H_ */

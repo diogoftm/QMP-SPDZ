@@ -7,6 +7,7 @@
 #define PROTOCOLS_SPDZWISE_H_
 
 #include "Replicated.h"
+#include "SpdzWiseRep3Shuffler.h"
 
 template<class T> class SpdzWiseInput;
 
@@ -33,6 +34,11 @@ class SpdzWise : public ProtocolBase<T>
     virtual void zero_check(check_type t);
 
 public:
+    typedef typename conditional<T::variable_players, SecureShuffle<T>,
+            SpdzWiseRep3Shuffler<T>>::type Shuffler;
+
+    static const bool uses_triples = false;
+
     Player& P;
 
     SpdzWise(Player& P);
@@ -58,7 +64,7 @@ public:
 
     int get_n_relevant_players() { return internal.get_n_relevant_players(); }
 
-    void randoms_inst(vector<T>& S, const Instruction& instruction);
+    void randoms_inst(StackedVector<T>& S, const Instruction& instruction);
 };
 
 #endif /* PROTOCOLS_SPDZWISE_H_ */

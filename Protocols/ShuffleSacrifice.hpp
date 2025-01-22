@@ -7,6 +7,7 @@
 #define PROTOCOLS_SHUFFLESACRIFICE_HPP_
 
 #include "ShuffleSacrifice.h"
+#include "BufferScope.h"
 #include "Tools/PointerVector.h"
 #include "GC/BitAdder.h"
 
@@ -14,7 +15,7 @@
 
 inline
 ShuffleSacrifice::ShuffleSacrifice() :
-        B(OnlineOptions::singleton.bucket_size), C(this->B)
+        ShuffleSacrifice(OnlineOptions::singleton.bucket_size)
 {
 }
 
@@ -22,6 +23,9 @@ inline
 ShuffleSacrifice::ShuffleSacrifice(int B, int C) :
         B(B), C(C)
 {
+    if (OnlineOptions::singleton.security_parameter > 40)
+        throw runtime_error("shuffle sacrifice not implemented for more than "
+                "40-bit security");
 }
 
 template<class U>
@@ -138,7 +142,8 @@ void DabitShuffleSacrifice<T>::dabit_sacrifice(vector<dabit<T> >& output,
         int start = queues->distribute(job, products.size());
         protocol.multiply(products, multiplicands,
                 start, products.size(), proc);
-        queues->wrap_up(job);
+        if (start)
+            queues->wrap_up(job);
     }
     else
         protocol.multiply(products, multiplicands, 0, products.size(), proc);
@@ -172,16 +177,26 @@ void DabitShuffleSacrifice<T>::dabit_sacrifice(vector<dabit<T> >& output,
 }
 
 template<class T>
+EdabitShuffleSacrifice<T>::EdabitShuffleSacrifice(int n_bits) :
+        ShuffleSacrifice(BaseMachine::edabit_bucket_size(n_bits)), n_bits(n_bits)
+{
+}
+
+template<class T>
 void EdabitShuffleSacrifice<T>::edabit_sacrifice(vector<edabit<T> >& output,
         vector<T>& wholes, vector<vector<typename T::bit_type::part_type>>& parts,
-        size_t n_bits, SubProcessor<T>& proc, bool strict, int player,
+        SubProcessor<T>& proc, bool strict, int player,
         ThreadQueues* queues)
 {
-#ifdef VERBOSE_EDA
-    cerr << "Sacrificing edaBits of length " << n_bits << endl;
     Timer timer;
-    timer.start();
-#endif
+    bool verbose = OnlineOptions::singleton.has_option("verbose_eda");
+
+    if (verbose)
+    {
+        fprintf(stderr, "Sacrificing %zu edaBits of length %zu\n",
+                wholes.size(), n_bits);
+        timer.start();
+    }
 
     auto& P = proc.P;
     auto& MC = proc.MC;
@@ -217,12 +232,12 @@ void EdabitShuffleSacrifice<T>::edabit_sacrifice(vector<edabit<T> >& output,
     parts.clear();
     parts.shrink_to_fit();
 
-#ifdef VERBOSE_EDA
-    cerr << "Initialization took " << init_timer.elapsed() << " seconds" << endl;
-#endif
+    if (verbose)
+        cerr << "Initialization took " << init_timer.elapsed() << " seconds" << endl;
 
     int buffer_size = to_check.size();
     int N = (buffer_size - C) / B;
+    assert(N > 0);
 
     // needs to happen before shuffling for security
     LimitedPrep<BT> personal_prep;
@@ -235,20 +250,21 @@ void EdabitShuffleSacrifice<T>::edabit_sacrifice(vector<edabit<T> >& output,
         int n_triples = DIV_CEIL((B - 1) * N * n_bits, dl);
         proc.personal_bit_preps.at(player)->buffer_personal_triples(n_triples,
                 queues);
+        BufferScope scope(*proc.personal_bit_preps.at(player), n_triples);
         for (int i = 0; i < n_triples; i++)
             personal_prep.push_triple(
                     proc.personal_bit_preps.at(player)->get_triple(dl));
         proc.personal_bit_preps.at(player)->shrink_to_fit();
     }
-#ifdef VERBOSE_EDA
-    cerr << "Personal preprocessing took " << personal_timer.elapsed() << " seconds" << endl;
-#endif
+
+    if (verbose)
+        cerr << "Personal preprocessing took " << personal_timer.elapsed() << " seconds" << endl;
 
     RunningTimer shuffle_timer;
     shuffle(to_check, P);
-#ifdef VERBOSE_EDA
-    cerr << "Shuffling took " << shuffle_timer.elapsed() << " seconds" << endl;
-#endif
+
+    if (verbose)
+        cerr << "Shuffling took " << shuffle_timer.elapsed() << " seconds" << endl;
 
     // opening C
     vector<T> shares;
@@ -306,17 +322,18 @@ void EdabitShuffleSacrifice<T>::edabit_sacrifice(vector<edabit<T> >& output,
         EdabitSacrificeJob job(&to_check, n_bits, strict, player);
         int start = queues->distribute_no_setup(job, N, 0, BT::default_length,
                 &supplies);
-        edabit_sacrifice_buckets(to_check, n_bits, strict, player, proc, start,
+        edabit_sacrifice_buckets(to_check, strict, player, proc, start,
                 N, personal_prep);
-        queues->wrap_up(job);
+        if (start)
+            queues->wrap_up(job);
     }
     else
-        edabit_sacrifice_buckets(to_check, n_bits, strict, player, proc, 0, N,
+        edabit_sacrifice_buckets(to_check, strict, player, proc, 0, N,
                 personal_prep);
-#ifdef VERBOSE_EDA
-    cerr << "Bucket sacrifice took " << bucket_timer.elapsed() << " seconds"
-            << endl;
-#endif
+
+    if (verbose)
+        cerr << "Bucket sacrifice took " << bucket_timer.elapsed() << " seconds"
+                << endl;
 
     RunningTimer output_timer;
     to_check.resize(N);
@@ -328,32 +345,31 @@ void EdabitShuffleSacrifice<T>::edabit_sacrifice(vector<edabit<T> >& output,
         for (auto& y : x.second)
             output.back().second.push_back(y);
     }
-#ifdef VERBOSE_EDA
-    cerr << "Output took " << output_timer.elapsed() << " seconds" << endl;
-#endif
+
+    if (verbose)
+        cerr << "Output took " << output_timer.elapsed() << " seconds" << endl;
 
     MCB.Check(P);
     delete &MCB;
 
-#ifdef VERBOSE_EDA
-    cerr << "Done sacrificing edaBits of length " << n_bits << " after "
-            << timer.elapsed() << " seconds" << endl;
-#endif
+    if (verbose)
+        cerr << "Done sacrificing edaBits of length " << n_bits << " after "
+                << timer.elapsed() << " seconds" << endl;
 }
 
 template<class T>
 void EdabitShuffleSacrifice<T>::edabit_sacrifice_buckets(vector<edabit<T>>& to_check,
-        size_t n_bits, bool strict, int player, SubProcessor<T>& proc, int begin,
+        bool strict, int player, SubProcessor<T>& proc, int begin,
         int end, const void* supply)
 {
     LimitedPrep<BT> personal_prep;
-    edabit_sacrifice_buckets(to_check, n_bits, strict, player, proc, begin, end,
+    edabit_sacrifice_buckets(to_check, strict, player, proc, begin, end,
             personal_prep, supply);
 }
 
 template<class T>
 void EdabitShuffleSacrifice<T>::edabit_sacrifice_buckets(vector<edabit<T>>& to_check,
-        size_t n_bits, bool strict, int player, SubProcessor<T>& proc, int begin,
+        bool strict, int player, SubProcessor<T>& proc, int begin,
         int end, LimitedPrep<BT>& personal_prep, const void* supply)
 {
     typedef typename T::bit_type::part_type BT;
@@ -366,6 +382,9 @@ void EdabitShuffleSacrifice<T>::edabit_sacrifice_buckets(vector<edabit<T>>& to_c
     ThreadQueues* queues = 0;
     auto& P = proc.P;
     auto& MC = proc.MC;
+
+    if (OnlineOptions::singleton.has_option("verbose_eda"))
+        fprintf(stderr, "sacrificing %d edaBits\n", N);
 
     // sacrifice buckets
     RunningTimer add_prep_timer;
@@ -516,7 +535,7 @@ void EdabitShuffleSacrifice<T>::edabit_sacrifice_buckets(vector<edabit<T>>& to_c
             sum <<= n_shift;
         if (single != sum)
         {
-            cout << hex << single << " vs " << (sum << n_shift) << "/" << sum
+            cout << hex << single << " vs " << sum
                     << endl;
             throw Offline_Check_Error("edabit shuffle bucket opening");
         }
