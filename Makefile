@@ -132,7 +132,7 @@ $(LIBRELEASE): Protocols/MalRepRingOptions.o $(PROCESSOR) $(COMMONOBJS) $(TINIER
 	$(AR) -csr $@ $^
 
 CFLAGS += -fPIC
-LDLIBS += -Wl,-rpath -Wl,$(CURDIR) -lcurl -ljansson -lcrypto -lssl -luuid -lexplain
+LDLIBS += -Wl,-rpath -Wl,$(CURDIR) -lcurl -ljansson -lcrypto -lssl -luuid -lexplain -lb64
 
 $(SHAREDLIB): $(PROCESSOR) $(COMMONOBJS) GC/square64.o GC/Instruction.o
 	$(CXX) $(CFLAGS) -shared -o $@ $^ $(LDLIBS)
@@ -294,6 +294,10 @@ OTKeys/Makefile:
 	-mv OTKeys_$(KEY_REQUEST_INTERFACE) OTKeys
 	$(MAKE) -C OTKeys/OTKeys
 endif
+
+deps/SimplestOT_C/ref10/Makefile:
+	git submodule update --init deps/SimplestOT_C || git clone https://github.com/mkskeller/SimplestOT_C deps/SimplestOT_C
+	cd deps/SimplestOT_C/ref10; PATH="$(CURDIR)/local/bin:$(PATH)" cmake .
 
 .PHONY: Programs/Circuits
 Programs/Circuits:

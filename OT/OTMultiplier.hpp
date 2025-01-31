@@ -293,7 +293,9 @@ void OTMultiplier<W>::multiplyForTriples()
                             generator.get_player().N.get_portnum(generator.players[thread_num]->other_player_num()), 
                             generator.get_player().N.get_sae(generator.players[thread_num]->other_player_num()).c_str(),
                             generator.get_player().N.get_ksid(generator.players[thread_num]->other_player_num()),
-                            generator.get_player().N.get_index(generator.players[thread_num]->other_player_num()), false);
+                            generator.get_player().N.get_index(generator.players[thread_num]->other_player_num()),
+                            generator.get_player().N.get_psk(generator.players[thread_num]->other_player_num()),
+                            false);
             
             for (size_t i = 0; i < aBits.size(); i++)
             {

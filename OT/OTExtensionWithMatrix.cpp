@@ -33,6 +33,7 @@ OTExtensionWithMatrix OTExtensionWithMatrix::setup(TwoPartyPlayer& player,
                     N->get_sae(player.other_player_num()),
                     N->get_ksid(player.other_player_num()),
                     N->get_index(player.other_player_num()),
+                    N->get_psk(player.other_player_num()),
                     false);
 
     return OTExtensionWithMatrix(baseOT, &player, passive);
@@ -263,6 +264,7 @@ void OTExtensionWithMatrix::extend_correlated(int nOTs_requested, const BitVecto
 //        throw invalid_length(); //"nOTs must be a multiple of nbaseOTs\n");
     if (nOTs_requested == 0)
         return;
+        
     // local copy
     auto newReceiverInput = newReceiverBits;
     if ((ot_role & RECEIVER) and (size_t)nOTs_requested != newReceiverInput.size())

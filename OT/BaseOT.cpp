@@ -11,6 +11,7 @@ extern "C"
 {
 #include "OTKeys/OTKeys/include/ui_rotk/receiver_uirotk.h"
 #include "OTKeys/OTKeys/include/ui_rotk/sender_uirotk.h"
+#include "BaseOT.h"
 }
 
 using namespace std;
@@ -69,7 +70,7 @@ void send_if_ot_receiver(TwoPartyPlayer *P, vector<octetStream> &os, OT_ROLE rol
 }
 
 void BaseOT::exec_base(int my_num, int other_player, string my_ip, string other_player_ip, int my_port, int other_player_port, string other_player_sae,
-                       string ksid, int index, bool new_receiver_inputs)
+                       string ksid, int index, vector<unsigned char> psk, bool new_receiver_inputs)
 {
     if (not cpu_has_avx())
         throw runtime_error("SimpleOT needs AVX support");
@@ -127,6 +128,17 @@ void BaseOT::exec_base(int my_num, int other_player, string my_ip, string other_
     unsigned char u_char[2][12 * 8];          // stores the random numbers for calculating the hash that the receiver got from the sender
     unsigned long long int u_receiver[2][12]; // stores in long long int format the random numbers that the receiver got from the sender
 
+    vector<unsigned char> psk_(KEY_LENGTH, 0);
+    if (psk.size() != 0) {
+        for (int s = 0; s < KEY_LENGTH / 8; s++)
+        {
+            for (int d = 0; d < 8; d++)
+            {
+                psk_[s * 8 + d] = !!((psk[s] << d) & 0x80);
+            }
+        }
+    }
+
     gettimeofday(&computationend_1, NULL);
 
     for (i = 0; i < nOT; i++)
@@ -139,6 +151,14 @@ void BaseOT::exec_base(int my_num, int other_player, string my_ip, string other_
             {
                 receiver_okd(&qreceiver);
                 receiver_indexlist(&qreceiver);
+
+                if (psk.size() != 0) {
+                    int known_index;
+                    for (int s = 0; s < KEY_LENGTH/2; s++){
+                        known_index = qreceiver.indexlist[0][s]; 
+                        qreceiver.receiver_OTkey[known_index] ^= psk_[known_index];
+                    }
+                }
 
                 for (j = 0; j < KEY_LENGTH / 2; j++) // convert the indexlist from ints to chars (since the ints are large, we will need 2 chars to store 1 int)
                 {
@@ -166,6 +186,11 @@ void BaseOT::exec_base(int my_num, int other_player, string my_ip, string other_
             if (ot_role & SENDER)
             {
                 sender_okd(&qsender);
+                if (psk.size() != 0) {
+                    for (int s = 0; s < KEY_LENGTH; s++){
+                        qsender.sender_OTkey[s] = qsender.sender_OTkey[s] ^ psk_[s];
+                    }
+                }
             }
         }
         else
@@ -173,12 +198,26 @@ void BaseOT::exec_base(int my_num, int other_player, string my_ip, string other_
             if (ot_role & SENDER)
             {
                 sender_okd(&qsender);
+
+                if (psk.size() != 0) {
+                    for (int s = 0; s < KEY_LENGTH; s++){
+                        qsender.sender_OTkey[s] = qsender.sender_OTkey[s] ^ psk_[s];
+                    }
+                }
             }
 
             if (ot_role & RECEIVER)
             {
                 receiver_okd(&qreceiver);
                 receiver_indexlist(&qreceiver);
+
+                if (psk.size() != 0) {
+                    int known_index;
+                    for (int s = 0; s < KEY_LENGTH/2; s++){
+                        known_index = qreceiver.indexlist[0][s]; 
+                        qreceiver.receiver_OTkey[known_index] ^= psk_[known_index];
+                    }
+                }
 
                 for (j = 0; j < KEY_LENGTH / 2; j++) // convert the indexlist from ints to chars (since the ints are large, we will need 2 chars to store 1 int)
                 {
@@ -283,6 +322,7 @@ void BaseOT::exec_base(int my_num, int other_player, string my_ip, string other_
                 receiver_outputs[i].set_byte(0 + 4 * j, (receiver_out[j] >> 24) & 0xFF);
             }
         }
+
         os1[0].reset_write_head();
         os2[0].reset_write_head();
 

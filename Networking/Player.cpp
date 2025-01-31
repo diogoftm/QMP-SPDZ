@@ -12,6 +12,7 @@
 #include <sys/select.h>
 #include <utility>
 #include <assert.h>
+#include <b64/decode.h> 
 
 using namespace std;
 
@@ -86,9 +87,25 @@ void Names::init(int player, int pnb, const string& filename, int nplayers_wante
           int index;
           stringstream(line.substr(pos)) >> index;
           indexes.push_back(index);
+          string p;
+          stringstream(line.substr(pos)) >> p;
+          pos = pos + p.length() + 1;
+          string psk;
+          stringstream(line.substr(pos)) >> psk;
+          if(psk != "-"){
+            base64::base64_decodestate state;
+            base64_init_decodestate(&state);
+            vector<unsigned char> decoded(psk.length());
+            int decodedLength = base64_decode_block(psk.c_str(), psk.length(), reinterpret_cast<char*>(decoded.data()), &state);
+            decoded.resize(decodedLength);
+            psks.push_back(decoded);
+          } else {
+            psks.push_back(vector<unsigned char>());
+          }
         } else{
           indexes.push_back(0);
           ksids.push_back("00000000-0000-0000-0000-000000000000");
+          psks.push_back(vector<unsigned char>());
         }
       }
       nplayers++;

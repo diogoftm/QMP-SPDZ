@@ -44,6 +44,7 @@ class Names
   vector<string> saes;
   vector<string> ksids;
   vector<int> indexes;
+  vector<vector<unsigned char>> psks;
   int nplayers;
   int portnum_base;
   int player_no;
@@ -132,6 +133,7 @@ class Names
   int get_portnum(int i) const { return ports[i]; }
   const string get_sae(int i) const { return saes[i]; }
   const string get_ksid(int i) const { return ksids[i]; }
+  const vector<unsigned char> get_psk(int i) const { return psks[i]; }
   int get_index(int i) const { return indexes[i]; }
 };
 
