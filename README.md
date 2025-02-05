@@ -96,6 +96,43 @@ The current version supports the following KMS interfaces that are slightly modi
     For this computation just input 3 numbers separated by a space or by a new line. 
     The first value is the flag that tells if there was a crash or not, the other two values are the $(x, y)$ coordinates. 
 
+# Generate shared keys
+
+Shared key generation is performed, if wished, before running the computation in order to set up the PSK filed in the respective parties file. 
+This can be done using the `generate_shared_key.py` script that will perform an online key exchange using a Key Encapsulation Mechanism (KEM). Currently, the only supported KEM is [ML-KEM](https://csrc.nist.gov/pubs/fips/203/final) that will be used by default leveraging [BoringSSL](https://boringssl.googlesource.com/boringssl)'s implementation. 
+
+For each party run:
+```bash
+python3 pq/generate_shared_key.py <ip-file-name> <playerno>
+```
+
+The script will also automatically update the respective parties file (`<ip-file-name>`) with the generated keys.
+
+The flow of the key exchange between two parties is depicted in the diagram bellow.
+
+```mermaid
+sequenceDiagram
+    participant PartyA as Party A
+    participant PartyB as Party B
+
+    Note over PartyA: Generate Ephemeral Keys (A_pub, A_priv)
+    Note over PartyB: Generate Ephemeral Keys (B_pub, B_priv)
+
+    PartyA->>PartyB: Send Public Key (A_pub)
+    PartyB->>PartyA: Send Public Key (B_pub)
+
+    Note over PartyA: Encapsulate Key using B_pub (K0, Encapsulated_K0)
+    PartyA->>PartyB: Send Encapsulated_K0
+    Note over PartyB: Decapsulate Encapsulated_K0 → K0 using B_priv
+    Note over PartyB: Encapsulate Key A_pub (K1, Encapsulated_K1)
+
+    PartyB->>PartyA: Send Encapsulated_K1
+
+    Note over PartyA: Decapsulate Encapsulated_K1 → K1 using A_priv
+
+    Note over PartyA, PartyB: Shared Key = K0 ⊕ K1
+```
+
 # More documentation
 
 Please check the original MP-SPDZ [documentation](https://mp-spdz.readthedocs.io/en/v0.4.0/).

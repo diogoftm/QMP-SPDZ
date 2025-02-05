@@ -26,8 +26,11 @@ VMOBJS = $(PROCESSOR) $(COMMONOBJS) $(LIBQOKDOT) GC/square64.o GC/Instruction.o 
 VM = $(MINI_OT) $(SHAREDLIB)
 COMMON = $(SHAREDLIB)
 TINIER =  Machines/Tinier.o $(OT)
-SPDZ = Machines/SPDZ.o $(TINIER)
+SPDZ = Machines/SPDZ.o $(TINIER)	
 
+PQ_INCLUDES = -Ideps/boringssl/include
+PQ_LIBRARY_PATHS = -Ldeps/boringssl/ssl -Ldeps/boringssl/crypto
+PQ_LIBRARIES = -lcrypto
 
 LIB = libSPDZ.a
 SHAREDLIB = libSPDZ.so
@@ -108,9 +111,9 @@ spdz2k: spdz2k-party.x ot-offline.x Check-Offline-Z2k.x galois-degree.x Fake-Off
 mascot: mascot-party.x spdz2k mama-party.x
 
 ifeq ($(OS), Darwin)
-setup: mac-setup
+setup: mac-setup pq/mlkem_interface.so
 else
-setup: maybe-boost linux-machine-setup
+setup: maybe-boost linux-machine-setup pq/mlkem_interface.so
 endif
 
 tldr: setup
@@ -284,6 +287,9 @@ static/bmr-program-party.x: $(BMR)
 static/no-party.x: Protocols/ShareInterface.o
 Test/failure.x: Protocols/MalRepRingOptions.o
 
+pq/mlkem_interface.so: pq/mlkem.cpp
+	$(CXX) -O3 -fPIC -shared $(PQ_INCLUDES) $(PQ_LIBRARY_PATHS) $^ $(PQ_LIBRARIES) -o $@
+
 ifeq ($(AVX_OT), 1)
 
 OT/BaseOT.o: OTKeys/Makefile
@@ -357,7 +363,7 @@ cmake:
 	tar xzvf cmake-3.24.1.tar.gz
 	cd cmake-3.24.1; \
 	./bootstrap --parallel=8 --prefix=../local && make -j8 && make install
-
+	
 mac-setup: mac-machine-setup
 	brew install openssl boost libsodium gmp yasm ntl cmake
 
@@ -371,7 +377,7 @@ deps/sse2neon/sse2neon.h:
 	git submodule update --init deps/sse2neon || git clone https://github.com/DLTcollab/sse2neon deps/sse2neon
 
 clean-deps:
-	-rm -rf local/lib/liblibOTe.* deps/libOTe/out
+	-rm -rf local/lib/liblibOTe.* deps/libOTe/out pq/*.so
 
 clean: clean-deps
 	-rm -f */*.o *.o */*.d *.d *.x core.* *.a gmon.out */*/*.o static/*.x *.so
