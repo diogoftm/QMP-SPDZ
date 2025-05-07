@@ -1,0 +1,30 @@
+from util import if_else
+
+program.bit_length = 32
+
+
+def crash_detection(N):
+    Crash = Array(N, sint)
+    Location_x = Array(N, sint)
+    Location_y = Array(N, sint)
+
+    for i in range(N):
+        inps = [sint.get_input_from(i) for _ in range(3)]
+        Crash[i] = inps[0]
+        Location_x[i] = inps[1]
+        Location_y[i] = inps[2]
+
+    c = sint(0)
+    index = 0
+    lx = sint(0)
+    ly = sint(0)
+    for i in range(N):
+        condition = ((Crash[i] == sint(1)) & ((Location_x[i] + Location_y[i]) > (lx + ly) ) | ( (Crash[i] == sint(1)) & (c == 0) ) )
+        new_c = if_else(condition, sint(1), c)
+        lx = if_else(condition, Location_x[i], lx)
+        ly = if_else(condition, Location_y[i], ly)
+        c = new_c
+        
+    print_ln('x=%s; y=%s (crash status = %s)', lx.reveal(), ly.reveal(), new_c.reveal())
+
+crash_detection(2)

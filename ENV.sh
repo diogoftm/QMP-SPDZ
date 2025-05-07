@@ -2,7 +2,8 @@
 # sure to update all the variables to suit your setup.
 # Set SENDER_STRICT_ROLE and RECEIVER_STRICT_ROLE with
 # 'tx' or 'rx' in case the KMS can only provide a specific
-# oblivious key role.
+# oblivious key role. The role reversing algorithm will be
+# performed internally if needed.
 
 export KEY_REQUEST_INTERFACE='004'
 
@@ -19,5 +20,6 @@ export RECEIVER_SAE_KEY='ssl/127.0.0.1.key'
 export RECEIVER_STRICT_ROLE=''
 
 # Extra for ETSI 004
-export SENDER_SAE_ID='qkd//app1@aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
-export RECEIVER_SAE_ID='qkd//app2@bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+# In most scenarios the two SAE IDs should be the same
+export SENDER_SAE_ID='qkd://app1@aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+export RECEIVER_SAE_ID='qkd://app2@bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
