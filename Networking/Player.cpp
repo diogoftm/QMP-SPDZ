@@ -79,34 +79,60 @@ void Names::init(int player, int pnb, const string& filename, int nplayers_wante
         saes.push_back(sae);
         pos = pos + sae.length() + 1;
 
-        if (line.length() > pos){
-          string ksid;
-          stringstream(line.substr(pos)) >> ksid;
-          ksids.push_back(ksid);
-          pos = pos + ksid.length() + 1;
-          int index;
-          stringstream(line.substr(pos)) >> index;
-          indexes.push_back(index);
+        if (line.length() > pos) {
+          string ksid = "00000000-0000-0000-0000-000000000000";
+          int index = 0;
           string p;
-          stringstream(line.substr(pos)) >> p;
-          pos = pos + p.length() + 1;
           string psk;
-          stringstream(line.substr(pos)) >> psk;
-          if(psk != "-"){
-            base64::base64_decodestate state;
-            base64_init_decodestate(&state);
-            vector<unsigned char> decoded(psk.length());
-            int decodedLength = base64_decode_block(psk.c_str(), psk.length(), reinterpret_cast<char*>(decoded.data()), &state);
-            decoded.resize(decodedLength);
-            psks.push_back(decoded);
-          } else {
-            psks.push_back(vector<unsigned char>());
+
+          // Extract KSID
+          {
+              stringstream ss(line.substr(pos));
+              ss >> ksid;
+              pos += ksid.length() + 1;
           }
-        } else{
+
+          // Extract index (if available)
+          if (pos < line.length()) {
+              stringstream ss(line.substr(pos));
+              ss >> index;
+              pos += to_string(index).length() + 1;
+          }
+
+          // Extract 'p' (unused string)
+          if (pos < line.length()) {
+              stringstream ss(line.substr(pos));
+              ss >> p;
+              pos += p.length() + 1;
+          }
+
+          // Extract PSK (may not be present)
+          if (pos < line.length()) {
+              stringstream ss(line.substr(pos));
+              ss >> psk;
+          }
+
+          // Store parsed values
+          ksids.push_back(ksid);
+          indexes.push_back(index);
+
+          if (!psk.empty() && psk != "-") {
+              base64::base64_decodestate state;
+              base64_init_decodestate(&state);
+              vector<unsigned char> decoded(psk.length());
+              int decodedLength = base64_decode_block(psk.c_str(), psk.length(), reinterpret_cast<char*>(decoded.data()), &state);
+              decoded.resize(decodedLength);
+              psks.push_back(decoded);
+          } else {
+              psks.push_back(vector<unsigned char>());
+          }
+      } else {
+          // Default values when line is too short
           indexes.push_back(0);
           ksids.push_back("00000000-0000-0000-0000-000000000000");
           psks.push_back(vector<unsigned char>());
-        }
+      }
+
       }
       nplayers++;
       if (nplayers_wanted > 0 and nplayers_wanted == nplayers)

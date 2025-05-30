@@ -267,7 +267,7 @@ void BaseOT::exec_base(int my_num, int other_player, string my_ip, string other_
         /* calculate hash functions and generate sender output */
         if (ot_role & SENDER)
         {
-            for (j = 0; j < 12 * 8; j++) // generate random chars
+            for (j = 0; j < 4 * 8; j++) // generate random chars
             {
                 v_char[0][j] = G.get_uchar();
                 v_char[1][j] = G.get_uchar();
@@ -276,7 +276,7 @@ void BaseOT::exec_base(int my_num, int other_player, string my_ip, string other_
             os1[0].store_bytes(v_char[0], sizeof(v_char[0])); // send the randomly generated chars to the receiver
             os2[0].store_bytes(v_char[1], sizeof(v_char[1]));
             
-            for (j = 0; j < 17; j++) // store the generated chars in long long int format
+            for (j = 0; j < 4; j++) // store the generated chars in long long int format
             {
                 v_sender[0][j] = ((unsigned long long int)(v_char[0][8 * j]) << 56) | ((unsigned long long int)(v_char[0][8 * j + 1]) << 48) | ((unsigned long long int)(v_char[0][8 * j + 2]) << 40) | ((unsigned long long int)(v_char[0][8 * j + 3]) << 32) | ((unsigned long long int)(v_char[0][8 * j + 4]) << 24) | ((unsigned long long int)v_char[0][8 * j + 5] << 16) | ((unsigned long long int)v_char[0][8 * j + 6] << 8) | (unsigned long long int)v_char[0][8 * j + 7];
                 v_sender[1][j] = ((unsigned long long int)v_char[1][8 * j] << 56) | ((unsigned long long int)v_char[1][8 * j + 1] << 48) | ((unsigned long long int)v_char[1][8 * j + 2] << 40) | ((unsigned long long int)v_char[1][8 * j + 3] << 32) | ((unsigned long long int)v_char[1][8 * j + 4] << 24) | ((unsigned long long int)v_char[1][8 * j + 5] << 16) | ((unsigned long long int)v_char[1][8 * j + 6] << 8) | (unsigned long long int)v_char[1][8 * j + 7];
@@ -306,7 +306,7 @@ void BaseOT::exec_base(int my_num, int other_player, string my_ip, string other_
             os1[1].get_bytes((octet *)u_char[0], len); // receive randomly generated chars from the sender
             os2[1].get_bytes((octet *)u_char[1], len);
 
-            for (j = 0; j < 12; j++) // store the random chars in long long int format
+            for (j = 0; j < 4; j++) // store the random chars in long long int format
             {
                 u_receiver[0][j] = ((unsigned long long int)u_char[0][8 * j] << 56) | ((unsigned long long int)u_char[0][8 * j + 1] << 48) | ((unsigned long long int)u_char[0][8 * j + 2] << 40) | ((unsigned long long int)u_char[0][8 * j + 3] << 32) | ((unsigned long long int)u_char[0][8 * j + 4] << 24) | ((unsigned long long int)u_char[0][8 * j + 5] << 16) | ((unsigned long long int)u_char[0][8 * j + 6] << 8) | (unsigned long long int)u_char[0][8 * j + 7];
                 u_receiver[1][j] = ((unsigned long long int)u_char[1][8 * j] << 56) | ((unsigned long long int)u_char[1][8 * j + 1] << 48) | ((unsigned long long int)u_char[1][8 * j + 2] << 40) | ((unsigned long long int)u_char[1][8 * j + 3] << 32) | ((unsigned long long int)u_char[1][8 * j + 4] << 24) | ((unsigned long long int)u_char[1][8 * j + 5] << 16) | ((unsigned long long int)u_char[1][8 * j + 6] << 8) | (unsigned long long int)u_char[1][8 * j + 7];
