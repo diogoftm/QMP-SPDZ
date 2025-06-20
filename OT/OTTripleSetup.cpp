@@ -22,6 +22,7 @@ void OTTripleSetup::setup(Player& N)
             other_player = i;
         baseOTs[i]->set_receiver_inputs(base_receiver_inputs);
 
+        int thread_number = stoi(N.get_id().substr(6));
         baseOTs[i]->exec_base(
                             my_num, 
                             other_player, 
@@ -31,7 +32,7 @@ void OTTripleSetup::setup(Player& N)
                             N.N.get_portnum(other_player), 
                             N.N.get_sae(other_player).c_str(),
                             N.N.get_ksid(other_player),
-                            N.N.get_index(other_player), 
+                            N.N.get_index(other_player) + thread_number*2, 
                             N.N.get_psk(other_player),
                             false);
         baseSenderInputs[i] = baseOTs[i]->sender_inputs;

@@ -94,7 +94,8 @@ void BaseOT::exec_base(int my_num, int other_player, string my_ip, string other_
     strcpy(qsender.my_ip, my_ip.c_str());
     strcpy(qsender.other_player_ip, other_player_ip.c_str());
     strcpy(qsender.other_player_sai_id, other_player_sae.c_str());
-    qsender.key_index = index;
+    if (other_player > my_num) qsender.key_index = index + 1;
+    else qsender.key_index = index;
 
     qsender.ksid = new char[ksid.size() + 1];
 
@@ -110,7 +111,8 @@ void BaseOT::exec_base(int my_num, int other_player, string my_ip, string other_
     strcpy(qreceiver.my_ip, my_ip.c_str());
     strcpy(qreceiver.other_player_ip, other_player_ip.c_str());
     strcpy(qreceiver.other_player_sai_id, other_player_sae.c_str());
-    qreceiver.key_index = index;
+    if (other_player > my_num) qreceiver.key_index = index;
+    else qreceiver.key_index = index + 1;
 
     qreceiver.ksid = new char[ksid.size() + 1];
 
